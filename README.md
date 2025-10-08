@@ -21,6 +21,6 @@ The goal is to provide 'sane' behaviors for these (this?) feature(s). For exampl
 ## Constraints
 * Only float32 samples are supported.
 * No exclusive mode (i.e. block all other apps from playing sound).
-* No audio input. If I do end up supporting it, I will.
+* No audio input. Not yet at least.
 
 To be continued . . .
