@@ -21,13 +21,23 @@
 
 #pragma once
 
-#include <stdint.h>
+#if defined(_WIN32) && defined(BUILD_SHARED_LIBS)
+    #if defined(EXPORT_MICRO_AUDIO_LIBRARY)
+        #define MICRO_AUDIO_API __declspec(dllexport)
+    #else // import harmony library
+        #define MICRO_AUDIO_API __declspec(dllimport)
+    #endif // defined(EXPORT_HARMONY_LIBRARY)
+#else
+    #define MICRO_AUDIO_API
+#endif // defined(_WIN32)
 
-typedef void (*ua_RenderCallback)(float* /* buffer */, uint32_t /* frameCount */, uint32_t /* channelCount */);
-typedef struct
-{
-    
-} ua_InitStruct;
+typedef void (*ua_RenderCallback)(float* /* buffer */, unsigned /* frameCount */, unsigned /* channelCount */);
 
-void ua_init(void);
-void ua_teardown(void);
+typedef struct {
+	ua_RenderCallback renderCallback;
+	unsigned maxFramesPerRenderBuffer;
+	unsigned renderSampleRate;
+} ua_InitParams;
+
+MICRO_AUDIO_API void ua_init(ua_InitParams* ua_InitParams);
+MICRO_AUDIO_API void ua_term(void);

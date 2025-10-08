@@ -24,8 +24,22 @@ extern "C"
 {
 #endif
 
-
+#ifndef EXPORT_MICRO_AUDIO_LIBRARY
+#define EXPORT_MICRO_AUDIO_LIBRARY
 #include "ua_api.h"
+#undef EXPORT_MICRO_AUDIO_LIBRARY
+
+
+void ua_init(ua_InitParams* ua_InitParams)
+{
+	
+}
+
+void ua_term(void)
+{
+	
+}
+
 
 #ifdef __cplusplus
 }
