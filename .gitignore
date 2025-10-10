@@ -1,5 +1,8 @@
 [Bb]uild/
 
+# vscode
+.vscode/
+
 # Prerequisites
 *.d
 

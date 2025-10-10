@@ -15,5 +15,6 @@ if(BUILD_SHARED_LIBS)
 add_compile_definitions(BUILD_SHARED_LIBS)
 endif()
 
-add_library(micro-audio "ua_api.h" "ua_api.c")
+add_executable(micro-audio "ua_api.h" "ua_api.c")
+target_link_libraries(micro-audio PRIVATE MMDevAPI Ole32)
 set_target_properties(micro-audio PROPERTIES LINKER_LANGUAGE C)
