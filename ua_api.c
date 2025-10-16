@@ -104,10 +104,11 @@ void ua_init_windows(ua_InitParams* ua_InitParams)
     memcpy(&w.SubFormat, &fpGuid, sizeof(GUID));
     WAVEFORMATEX* targetFormat = &w;
 
-    // REFERENCE_TIME defaultInterval;
-    REFERENCE_TIME minimumInterval;
-    audioClient->lpVtbl->GetDevicePeriod(audioClient, NULL, &minimumInterval);
-    
+    unsigned defaultInterval;
+    unsigned minimumInterval;
+    unsigned fundamentalInterval;
+    unsigned maximumInterval;
+    // audioClient->lpVtbl->GetDevicePeriod(audioClient, NULL, &minimumInterval);
     WAVEFORMATEX* closest;
     r = audioClient->lpVtbl->IsFormatSupported(audioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&w, &closest);
     if (r != S_OK && closest != NULL)
@@ -115,7 +116,8 @@ void ua_init_windows(ua_InitParams* ua_InitParams)
         targetFormat = closest;
     }
 
-    UA_CHECK(audioClient->lpVtbl->Initialize(audioClient, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, minimumInterval, 0, targetFormat, NULL));
+    UA_CHECK(audioClient->lpVtbl->GetSharedModeEnginePeriod(audioClient, targetFormat, &defaultInterval, &fundamentalInterval, &minimumInterval, &maximumInterval));
+    UA_CHECK(audioClient->lpVtbl->InitializeSharedAudioStream(audioClient, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, minimumInterval, targetFormat, NULL));
     HANDLE bufferReadyHandle = CreateEvent(NULL, 0, 0, NULL);
     if (!bufferReadyHandle)
     {
