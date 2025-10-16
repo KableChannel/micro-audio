@@ -59,6 +59,7 @@ void ua_term(void)
 #if _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <mmdeviceapi.h>
+#include <Audioclient.h>
 #undef WIN32_LEAN_AND_MEAN
 
 #if _DEBUG
@@ -70,21 +71,96 @@ void ua_term(void)
 
 void ua_init_windows(ua_InitParams* ua_InitParams)
 {
+    // I don't understand why Windows has to be like this, but the CLSID_MMDeviceEnumerator and IID_IMMDeviceEnumerator GUID
+    // do not get defined anywhere when compiling for C language. Therefore, I define them here. Hope they don't change!
+    const GUID mmClassGuid = (GUID){ 0xBCDE0395, 0xE52F, 0x467C, { 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E } };
+    const GUID mmInterfaceGuid = (GUID){ 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
+    
     HRESULT r;
-    IMMDeviceEnumerator* deviceEnumerator;
-    // I don't understand why Windows
-    // has to be like this, but the
-    // CLSID_MMDeviceEnumerator and 
-    // IID_IMMDeviceEnumerator GUID
-    // do not get defined anywhere
-    // when compiling for C language.
-    // Therefore, I define them here.
-    GUID mmClassGuid = (GUID){ 0xBCDE0395, 0xE52F, 0x467C, { 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E } };
-    GUID mmInterfaceGuid = (GUID){ 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
+    const GUID audioClient3Guid = (GUID){ 0x7ED4EE07, 0x8E67, 0x4CD4, { 0x8C, 0x1A, 0x2B, 0x7A, 0x59, 0x87, 0xAD, 0x42 } };
     UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
-    UA_CHECK(CoCreateInstance((CLSID*)&mmClassGuid, NULL, CLSCTX_ALL, (IID*)&mmInterfaceGuid, (void**)&deviceEnumerator));
+    IMMDeviceEnumerator* deviceEnumerator;
+    UA_CHECK(CoCreateInstance(&mmClassGuid, NULL, CLSCTX_ALL, &mmInterfaceGuid, (void**)&deviceEnumerator));
     IMMDevice* device;
-    deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(deviceEnumerator, eRender, eMultimedia, &device);
+    UA_CHECK(deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(deviceEnumerator, eRender, eConsole, &device));
+    IAudioClient3* audioClient;
+    UA_CHECK(device->lpVtbl->Activate(device, &audioClient3Guid, CLSCTX_ALL, NULL, &audioClient));
+
+    // set up audio format.
+    WAVEFORMATEXTENSIBLE w = { 0 };
+    const unsigned BitsPerFloat = 32;
+    const unsigned ChannelCount = 2;
+    const unsigned BitsPerByte = 8;
+    w.Samples.wValidBitsPerSample = BitsPerFloat;
+    w.dwChannelMask = KSAUDIO_SPEAKER_DIRECTOUT;
+    w.Format.wBitsPerSample = BitsPerFloat;
+    w.Format.cbSize = 22;
+    w.Format.nChannels = ChannelCount; // TODO: LISTEN TO OUTPUT DEVICE CHANNEL COUNT
+    w.Format.nSamplesPerSec = ua_InitParams->renderSampleRate;
+    w.Format.nBlockAlign = ChannelCount * (BitsPerFloat / BitsPerByte);
+    w.Format.nAvgBytesPerSec = w.Format.nSamplesPerSec * w.Format.nBlockAlign;
+    w.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    const GUID fpGuid = { STATIC_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT };
+    memcpy(&w.SubFormat, &fpGuid, sizeof(GUID));
+    WAVEFORMATEX* targetFormat = &w;
+
+    // REFERENCE_TIME defaultInterval;
+    REFERENCE_TIME minimumInterval;
+    audioClient->lpVtbl->GetDevicePeriod(audioClient, NULL, &minimumInterval);
+    
+    WAVEFORMATEX* closest;
+    r = audioClient->lpVtbl->IsFormatSupported(audioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&w, &closest);
+    if (r != S_OK && closest != NULL)
+    {
+        targetFormat = closest;
+    }
+
+    UA_CHECK(audioClient->lpVtbl->Initialize(audioClient, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, minimumInterval, 0, targetFormat, NULL));
+    HANDLE bufferReadyHandle = CreateEvent(NULL, 0, 0, NULL);
+    if (!bufferReadyHandle)
+    {
+        printf("Huh\n");
+        return;
+    }
+    UA_CHECK(audioClient->lpVtbl->SetEventHandle(audioClient, bufferReadyHandle));
+    const GUID renderClientGuid = { 0xF294ACFC, 0x3146, 0x4483, { 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2 } };
+    
+    IAudioRenderClient* renderClient;
+    UA_CHECK(audioClient->lpVtbl->GetService(audioClient, &renderClientGuid, &renderClient));
+    unsigned framesPerBuffer;
+    UA_CHECK(audioClient->lpVtbl->GetBufferSize(audioClient, &framesPerBuffer));
+    float* buffer;
+    UA_CHECK(renderClient->lpVtbl->GetBuffer(renderClient, framesPerBuffer, (BYTE**)&buffer));
+    UA_CHECK(renderClient->lpVtbl->ReleaseBuffer(renderClient, framesPerBuffer, AUDCLNT_BUFFERFLAGS_SILENT));
+    UA_CHECK(audioClient->lpVtbl->Start(audioClient));
+    unsigned paddingFrameCount;
+    
+    // TODO: set this up in a breakout thread.
+    for (;;)
+    {
+        WaitForSingleObject(bufferReadyHandle, INFINITE);
+        audioClient->lpVtbl->GetCurrentPadding(audioClient, &paddingFrameCount);
+        unsigned targetFramesToRender = framesPerBuffer - paddingFrameCount;
+        printf("Padding %d ToRender %d\n", paddingFrameCount, targetFramesToRender);
+        if (S_OK == renderClient->lpVtbl->GetBuffer(renderClient, targetFramesToRender, (BYTE**)&buffer))
+        {
+            for (unsigned channel = 0; channel < ChannelCount; ++channel)
+            {
+                for (unsigned frame = 0; frame < targetFramesToRender; ++frame)
+                {
+                    buffer[frame * ChannelCount + channel] = 0.05f * ((float)frame / (float)targetFramesToRender) - 0.025f;
+                }
+            }
+            renderClient->lpVtbl->ReleaseBuffer(renderClient, targetFramesToRender, 0);
+        }
+    }
+
+    if (closest != NULL)
+    {
+        CoTaskMemFree(closest);
+    }
+
+    CloseHandle(bufferReadyHandle);
 }
 
 void ua_term_windows(void)
