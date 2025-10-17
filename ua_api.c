@@ -88,19 +88,19 @@ void ua_init_windows(ua_InitParams* ua_InitParams)
 
     // set up audio format.
     WAVEFORMATEXTENSIBLE w = { 0 };
-    const unsigned BitsPerFloat = 32;
+    const unsigned BitsPerInt = 16;
     const unsigned ChannelCount = 2;
     const unsigned BitsPerByte = 8;
-    w.Samples.wValidBitsPerSample = BitsPerFloat;
+    w.Samples.wValidBitsPerSample = BitsPerInt;
     w.dwChannelMask = KSAUDIO_SPEAKER_DIRECTOUT;
-    w.Format.wBitsPerSample = BitsPerFloat;
+    w.Format.wBitsPerSample = BitsPerInt;
     w.Format.cbSize = 22;
     w.Format.nChannels = ChannelCount; // TODO: LISTEN TO OUTPUT DEVICE CHANNEL COUNT
     w.Format.nSamplesPerSec = ua_InitParams->renderSampleRate;
-    w.Format.nBlockAlign = ChannelCount * (BitsPerFloat / BitsPerByte);
+    w.Format.nBlockAlign = ChannelCount * (BitsPerInt / BitsPerByte);
     w.Format.nAvgBytesPerSec = w.Format.nSamplesPerSec * w.Format.nBlockAlign;
     w.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-    const GUID fpGuid = { STATIC_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT };
+    const GUID fpGuid = { STATIC_KSDATAFORMAT_SUBTYPE_PCM };
     memcpy(&w.SubFormat, &fpGuid, sizeof(GUID));
     WAVEFORMATEX* targetFormat = &w;
 
@@ -131,7 +131,7 @@ void ua_init_windows(ua_InitParams* ua_InitParams)
     UA_CHECK(audioClient->lpVtbl->GetService(audioClient, &renderClientGuid, &renderClient));
     unsigned framesPerBuffer;
     UA_CHECK(audioClient->lpVtbl->GetBufferSize(audioClient, &framesPerBuffer));
-    float* buffer;
+    short* buffer;
     UA_CHECK(renderClient->lpVtbl->GetBuffer(renderClient, framesPerBuffer, (BYTE**)&buffer));
     UA_CHECK(renderClient->lpVtbl->ReleaseBuffer(renderClient, framesPerBuffer, AUDCLNT_BUFFERFLAGS_SILENT));
     UA_CHECK(audioClient->lpVtbl->Start(audioClient));
@@ -150,7 +150,7 @@ void ua_init_windows(ua_InitParams* ua_InitParams)
             {
                 for (unsigned frame = 0; frame < targetFramesToRender; ++frame)
                 {
-                    buffer[frame * ChannelCount + channel] = 0.05f * ((float)frame / (float)targetFramesToRender) - 0.025f;
+                    buffer[frame * ChannelCount + channel] = (short)((MAXSHORT / 2) * (0.05f * ((float)frame / (float)targetFramesToRender) - 0.025f));
                 }
             }
             renderClient->lpVtbl->ReleaseBuffer(renderClient, targetFramesToRender, 0);
