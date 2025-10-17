@@ -35,8 +35,9 @@ typedef void (*ua_RenderCallback)(float* /* buffer */, unsigned /* frameCount */
 
 typedef struct {
 	ua_RenderCallback renderCallback;
-	unsigned maxFramesPerRenderBuffer;
 	unsigned renderSampleRate;
+	unsigned maxFramesPerRenderBuffer;
+    unsigned maxChannelCount;
 } ua_Settings;
 
 MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);

@@ -149,7 +149,6 @@ void ua_init_windows(ua_Settings* settings)
     {
         ua_renderBuffers[i] = (const ua_AudioBuffer){ 0 };
         ua_renderBuffers[i].rawData = calloc(1, RenderBufferByteCount);
-
         ua_renderBuffers[i].xAudioBuffer.AudioBytes = RenderBufferByteCount;
         ua_renderBuffers[i].xAudioBuffer.pAudioData = (const BYTE*)ua_renderBuffers[i].rawData;
         IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &(ua_renderBuffers[i].xAudioBuffer), NULL);
@@ -173,31 +172,6 @@ void ua_term_windows(void)
 }
 
 #endif
-
-void ua_render_test_callback(float* outBuffer, unsigned frameCount, unsigned channelCount)
-{
-    for (unsigned frame = 0; frame < frameCount; ++frame)
-    {
-        for (unsigned channel = 0; channel < channelCount; ++channel)
-        {
-            // basic sawtooth, right ear one octave higher.
-            outBuffer[frame * channelCount + channel] = -0.01f + 0.02f * ((float)((frame * (channel + 1)) % frameCount) / (float)frameCount);
-        }
-    }
-}
-
-int main(void)
-{
-    ua_Settings params;
-    params.maxFramesPerRenderBuffer = 256;
-    params.renderSampleRate = 48000;
-    params.renderCallback = ua_render_test_callback;
-    ua_init_windows(&params);
-
-    for (;;);
-
-    return 0;
-}
 
 #ifdef __cplusplus
 }
