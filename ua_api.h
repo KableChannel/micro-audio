@@ -37,7 +37,7 @@ typedef struct {
 	ua_RenderCallback renderCallback;
 	unsigned maxFramesPerRenderBuffer;
 	unsigned renderSampleRate;
-} ua_InitParams;
+} ua_Settings;
 
-MICRO_AUDIO_API void ua_init(ua_InitParams* ua_InitParams);
+MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);
 MICRO_AUDIO_API void ua_term(void);

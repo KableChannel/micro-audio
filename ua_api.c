@@ -24,21 +24,21 @@ extern "C"
 {
 #endif
 
-#ifndef EXPORT_MICRO_AUDIO_LIBRARY
+#ifndef UA_EXPORT_MICRO_AUDIO_LIBRARY
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif
 #include "ua_api.h"
 #if _DEBUG
 #include <stdio.h>
 #endif
-#undef EXPORT_MICRO_AUDIO_LIBRARY
+#undef UA_EXPORT_MICRO_AUDIO_LIBRARY
 
 #if _WIN32
-void ua_init_windows(ua_InitParams* ua_InitParams);
+void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #endif
 
-void ua_init(ua_InitParams* ua_InitParams)
+void ua_init(ua_Settings* ua_InitParams)
 {
 #if _WIN32
     ua_init_windows(ua_InitParams);
@@ -52,15 +52,13 @@ void ua_term(void)
 #endif
 }
 
-
-
-
-
 #if _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <mmdeviceapi.h>
-#include <Audioclient.h>
+#include <xaudio2.h>
 #undef WIN32_LEAN_AND_MEAN
+
+// TODO: this should not be a define
+#define UA_RENDER_CHANNEL_COUNT 2
 
 #if _DEBUG
 #define LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
@@ -69,121 +67,136 @@ void ua_term(void)
 #endif
 #define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { LOG_ERROR((x)) return; } } while(0)
 
-void ua_init_windows(ua_InitParams* ua_InitParams)
+IXAudio2* ua_xAudio2;
+IXAudio2MasteringVoice* ua_xAudio2MasterVoice;
+IXAudio2SourceVoice* ua_xAudio2SourceVoice;
+typedef struct
 {
-    // I don't understand why Windows has to be like this, but the CLSID_MMDeviceEnumerator and IID_IMMDeviceEnumerator GUID
-    // do not get defined anywhere when compiling for C language. Therefore, I define them here. Hope they don't change!
-    const GUID mmClassGuid = (GUID){ 0xBCDE0395, 0xE52F, 0x467C, { 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E } };
-    const GUID mmInterfaceGuid = (GUID){ 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
-    
-    HRESULT r;
-    const GUID audioClient3Guid = (GUID){ 0x7ED4EE07, 0x8E67, 0x4CD4, { 0x8C, 0x1A, 0x2B, 0x7A, 0x59, 0x87, 0xAD, 0x42 } };
-    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
-    IMMDeviceEnumerator* deviceEnumerator;
-    UA_CHECK(CoCreateInstance(&mmClassGuid, NULL, CLSCTX_ALL, &mmInterfaceGuid, (void**)&deviceEnumerator));
-    IMMDevice* device;
-    UA_CHECK(deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(deviceEnumerator, eRender, eConsole, &device));
-    IAudioClient3* audioClient;
-    UA_CHECK(device->lpVtbl->Activate(device, &audioClient3Guid, CLSCTX_ALL, NULL, &audioClient));
+    BYTE* rawData;
+    XAUDIO2_BUFFER xAudioBuffer;
+} ua_AudioBuffer;
 
-    // set up audio format.
-    WAVEFORMATEXTENSIBLE w = { 0 };
-    const unsigned BitsPerInt = 16;
-    const unsigned ChannelCount = 2;
-    const unsigned BitsPerByte = 8;
-    w.Samples.wValidBitsPerSample = BitsPerInt;
-    w.dwChannelMask = KSAUDIO_SPEAKER_DIRECTOUT;
-    w.Format.wBitsPerSample = BitsPerInt;
-    w.Format.cbSize = 22;
-    w.Format.nChannels = ChannelCount; // TODO: LISTEN TO OUTPUT DEVICE CHANNEL COUNT
-    w.Format.nSamplesPerSec = ua_InitParams->renderSampleRate;
-    w.Format.nBlockAlign = ChannelCount * (BitsPerInt / BitsPerByte);
-    w.Format.nAvgBytesPerSec = w.Format.nSamplesPerSec * w.Format.nBlockAlign;
-    w.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-    const GUID fpGuid = { STATIC_KSDATAFORMAT_SUBTYPE_PCM };
-    memcpy(&w.SubFormat, &fpGuid, sizeof(GUID));
-    WAVEFORMATEX* targetFormat = &w;
+#define UA_RENDER_BUFFER_COUNT 2
+ua_AudioBuffer ua_renderBuffers[UA_RENDER_BUFFER_COUNT];
+unsigned ua_renderBufferIndex = 0;
 
-    unsigned defaultInterval;
-    unsigned minimumInterval;
-    unsigned fundamentalInterval;
-    unsigned maximumInterval;
-    // audioClient->lpVtbl->GetDevicePeriod(audioClient, NULL, &minimumInterval);
-    WAVEFORMATEX* closest;
-    r = audioClient->lpVtbl->IsFormatSupported(audioClient, AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*)&w, &closest);
-    if (r != S_OK && closest != NULL)
-    {
-        targetFormat = closest;
+ua_Settings ua_settings;
+void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext) 
+{
+    ua_settings.renderCallback((float*)ua_renderBuffers[ua_renderBufferIndex].rawData, ua_settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
+    IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &(ua_renderBuffers[ua_renderBufferIndex].xAudioBuffer), NULL);
+    ua_renderBufferIndex = (ua_renderBufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
+}
+
+void XAudio2OnStreamEnd(IXAudio2VoiceCallback* This) {}
+void XAudio2OnVoiceProcessingPassEnd(IXAudio2VoiceCallback* This) {}
+void XAudio2OnVoiceProcessingPassStart(IXAudio2VoiceCallback* This, UINT32 SamplesRequired) {}
+void XAudio2OnBufferStart(IXAudio2VoiceCallback* This, void* pBufferContext) {}
+void XAudio2OnLoopEnd(IXAudio2VoiceCallback* This, void* pBufferContext) {}
+void XAudio2OnVoiceError(IXAudio2VoiceCallback* This, void* pBufferContext, HRESULT Error) {}
+
+IXAudio2VoiceCallback xAudio2Callbacks = {
+    .lpVtbl = &(IXAudio2VoiceCallbackVtbl) {
+        .OnStreamEnd = XAudio2OnStreamEnd,
+        .OnVoiceProcessingPassEnd = XAudio2OnVoiceProcessingPassEnd,
+        .OnVoiceProcessingPassStart = XAudio2OnVoiceProcessingPassStart,
+        .OnBufferEnd = XAudio2OnBufferEnd,
+        .OnBufferStart = XAudio2OnBufferStart,
+        .OnLoopEnd = XAudio2OnLoopEnd,
+        .OnVoiceError = XAudio2OnVoiceError
     }
+};
 
-    UA_CHECK(audioClient->lpVtbl->GetSharedModeEnginePeriod(audioClient, targetFormat, &defaultInterval, &fundamentalInterval, &minimumInterval, &maximumInterval));
-    UA_CHECK(audioClient->lpVtbl->InitializeSharedAudioStream(audioClient, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, minimumInterval, targetFormat, NULL));
-    HANDLE bufferReadyHandle = CreateEvent(NULL, 0, 0, NULL);
-    if (!bufferReadyHandle)
-    {
-        printf("Huh\n");
-        return;
-    }
-    UA_CHECK(audioClient->lpVtbl->SetEventHandle(audioClient, bufferReadyHandle));
-    const GUID renderClientGuid = { 0xF294ACFC, 0x3146, 0x4483, { 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2 } };
-    
-    IAudioRenderClient* renderClient;
-    UA_CHECK(audioClient->lpVtbl->GetService(audioClient, &renderClientGuid, &renderClient));
-    unsigned framesPerBuffer;
-    UA_CHECK(audioClient->lpVtbl->GetBufferSize(audioClient, &framesPerBuffer));
-    short* buffer;
-    UA_CHECK(renderClient->lpVtbl->GetBuffer(renderClient, framesPerBuffer, (BYTE**)&buffer));
-    UA_CHECK(renderClient->lpVtbl->ReleaseBuffer(renderClient, framesPerBuffer, AUDCLNT_BUFFERFLAGS_SILENT));
-    UA_CHECK(audioClient->lpVtbl->Start(audioClient));
-    unsigned paddingFrameCount;
-    
-    // TODO: set this up in a breakout thread.
-    for (;;)
-    {
-        WaitForSingleObject(bufferReadyHandle, INFINITE);
-        audioClient->lpVtbl->GetCurrentPadding(audioClient, &paddingFrameCount);
-        unsigned targetFramesToRender = framesPerBuffer - paddingFrameCount;
-        printf("Padding %d ToRender %d\n", paddingFrameCount, targetFramesToRender);
-        if (S_OK == renderClient->lpVtbl->GetBuffer(renderClient, targetFramesToRender, (BYTE**)&buffer))
-        {
-            for (unsigned channel = 0; channel < ChannelCount; ++channel)
-            {
-                for (unsigned frame = 0; frame < targetFramesToRender; ++frame)
-                {
-                    buffer[frame * ChannelCount + channel] = (short)((MAXSHORT / 2) * (0.05f * ((float)frame / (float)targetFramesToRender) - 0.025f));
-                }
-            }
-            renderClient->lpVtbl->ReleaseBuffer(renderClient, targetFramesToRender, 0);
-        }
-    }
+#if _DEBUG
+#define LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
+#else
+#define LOG_ERROR(x)
+#endif
+#define UA_CHECK(x) do { result = (x); if (!SUCCEEDED(result)) { LOG_ERROR((x)) return; } } while(0)
+void ua_init_windows(ua_Settings* settings)
+{
+    ua_settings = *settings;
+    HRESULT result;
+    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED)); // per Microsoft, first param must be NULL
+    UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR)); // per Microsoft, param 2 must be 0
 
-    if (closest != NULL)
-    {
-        CoTaskMemFree(closest);
-    }
+    UA_CHECK(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice, XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
+        0, // no flags
+        NULL, // use default device
+        NULL, // no effects
+        AudioCategory_GameMedia
+    ));
+    const DWORD BytesPerSample = sizeof(float);
+    WAVEFORMATEX waveFormat = {
+        .wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
+        .nChannels = UA_RENDER_CHANNEL_COUNT,
+        .nSamplesPerSec = ua_settings.renderSampleRate,
+        .nAvgBytesPerSec = ua_settings.renderSampleRate * UA_RENDER_CHANNEL_COUNT * BytesPerSample,
+        .nBlockAlign = UA_RENDER_CHANNEL_COUNT * BytesPerSample,
+        .wBitsPerSample = BytesPerSample * 8,
+        .cbSize = 0 // set to zero for PCM or IEEE float
+    };
+    UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat, XAUDIO2_VOICE_NOPITCH,
+        1.f, // default pitch ratio
+        &xAudio2Callbacks,
+        NULL, // no sends
+        NULL // no effects
+    ));
+    IXAudio2SourceVoice_Start(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
 
-    CloseHandle(bufferReadyHandle);
+    const unsigned RenderBufferByteCount = ua_settings.maxFramesPerRenderBuffer * UA_RENDER_CHANNEL_COUNT * sizeof(float);
+    for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
+    {
+        ua_renderBuffers[i] = (const ua_AudioBuffer){ 0 };
+        ua_renderBuffers[i].rawData = calloc(1, RenderBufferByteCount);
+
+        ua_renderBuffers[i].xAudioBuffer.AudioBytes = RenderBufferByteCount;
+        ua_renderBuffers[i].xAudioBuffer.pAudioData = (const BYTE*)ua_renderBuffers[i].rawData;
+        IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &(ua_renderBuffers[i].xAudioBuffer), NULL);
+    }
 }
 
 void ua_term_windows(void)
 {
+    IXAudio2SourceVoice_DestroyVoice(ua_xAudio2SourceVoice);
+    ua_xAudio2SourceVoice = NULL;
+    IXAudio2MasteringVoice_DestroyVoice(ua_xAudio2MasterVoice);
+    ua_xAudio2MasterVoice = NULL;
+    IXAudio2_StopEngine(ua_xAudio2);
+    IXAudio2_Release(ua_xAudio2);
+    ua_xAudio2 = NULL;
+
     CoUninitialize();
+
+    for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
+        free(ua_renderBuffers[i].rawData);
 }
 
 #endif
 
-
-
-
+void ua_render_test_callback(float* outBuffer, unsigned frameCount, unsigned channelCount)
+{
+    for (unsigned frame = 0; frame < frameCount; ++frame)
+    {
+        for (unsigned channel = 0; channel < channelCount; ++channel)
+        {
+            // basic sawtooth, right ear one octave higher.
+            outBuffer[frame * channelCount + channel] = -0.01f + 0.02f * ((float)((frame * (channel + 1)) % frameCount) / (float)frameCount);
+        }
+    }
+}
 
 int main(void)
 {
-    ua_InitParams params;
+    ua_Settings params;
     params.maxFramesPerRenderBuffer = 256;
     params.renderSampleRate = 48000;
-    params.renderCallback = NULL;
+    params.renderCallback = ua_render_test_callback;
     ua_init_windows(&params);
-    printf("huh");
+
+    for (;;);
+
+    return 0;
 }
 
 #ifdef __cplusplus
