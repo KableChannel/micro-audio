@@ -38,6 +38,7 @@ typedef struct {
 	unsigned renderSampleRate;
 	unsigned maxFramesPerRenderBuffer;
     unsigned maxChannelCount;
+    unsigned _RESERVED;
 } ua_Settings;
 
 MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);
