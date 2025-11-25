@@ -40,6 +40,12 @@ void ua_term_windows(void);
 #endif
 
 void ua_init(ua_Settings* ua_InitParams) {
+    if (ua_InitParams->allocateFunction == NULL) {
+        ua_InitParams->allocateFunction = malloc;
+    }
+    if (ua_InitParams->freeFunction == NULL) {
+        ua_InitParams->freeFunction = free;
+    }
 #if _WIN32
     ua_init_windows(ua_InitParams);
 #endif
