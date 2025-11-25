@@ -28,9 +28,9 @@ extern "C"
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif
 #include "ua_api.h"
-#if _DEBUG
-#include <stdio.h>
 #include <core/memory.h>
+#ifdef _DEBUG
+#include <stdio.h>
 #endif
 #undef UA_EXPORT_MICRO_AUDIO_LIBRARY
 
@@ -56,7 +56,8 @@ void ua_term(void)
 #if _WIN32
 #define WIN32_LEAN_AND_MEAN
 
-// stupid Microsoft warnings
+// At /Wall levels of warnings,
+// these must be defined for MS.
 #ifndef WINAPI_PARTITION_TV_APP 
 #define WINAPI_PARTITION_TV_APP 0
 #endif
@@ -70,7 +71,7 @@ void ua_term(void)
 // TODO: this should not be a define
 #define UA_RENDER_CHANNEL_COUNT 2
 
-#if _DEBUG
+#ifdef _DEBUG
 #define LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
 #else
 #define LOG_ERROR(x)
@@ -84,7 +85,7 @@ typedef struct
 {
     BYTE* rawData;
     XAUDIO2_BUFFER xAudioBuffer;
-    hr_u32 _RESERVED;
+    char _RESERVED[4];
 } ua_AudioBuffer;
 
 #define UA_RENDER_BUFFER_COUNT 2
