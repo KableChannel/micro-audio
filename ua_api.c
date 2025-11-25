@@ -39,15 +39,13 @@ void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #endif
 
-void ua_init(ua_Settings* ua_InitParams)
-{
+void ua_init(ua_Settings* ua_InitParams) {
 #if _WIN32
     ua_init_windows(ua_InitParams);
 #endif
 }
 
-void ua_term(void)
-{
+void ua_term(void) {
 #if _WIN32
     ua_term_windows();
 #endif
@@ -81,8 +79,7 @@ void ua_term(void)
 IXAudio2* ua_xAudio2;
 IXAudio2MasteringVoice* ua_xAudio2MasterVoice;
 IXAudio2SourceVoice* ua_xAudio2SourceVoice;
-typedef struct
-{
+typedef struct {
     BYTE* rawData;
     XAUDIO2_BUFFER xAudioBuffer;
     char _RESERVED[4];
@@ -93,8 +90,7 @@ ua_AudioBuffer ua_renderBuffers[UA_RENDER_BUFFER_COUNT] = { NULL };
 unsigned ua_renderBufferIndex = 0;
 
 ua_Settings ua_settings;
-void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext) 
-{
+void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext) {
     (void)This;
     (void)pBufferContext;
     ua_settings.renderCallback((float*)ua_renderBuffers[ua_renderBufferIndex].rawData, ua_settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
@@ -121,8 +117,7 @@ IXAudio2VoiceCallback xAudio2Callbacks = {
     }
 };
 
-void ua_init_windows(ua_Settings* settings)
-{
+void ua_init_windows(ua_Settings* settings) {
     ua_settings = *settings;
     HRESULT r;
     UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED)); // per Microsoft, first param must be NULL
@@ -158,7 +153,7 @@ void ua_init_windows(ua_Settings* settings)
     {
         ua_AudioBuffer* ab = &ua_renderBuffers[ua_renderBufferIndex];
         *ab = (const ua_AudioBuffer){ 0 };
-        ab->rawData = HR_MemAllocate(RenderBufferByteCount);
+        ab->rawData = ua_settings.allocateFunction(RenderBufferByteCount);
         memset(ab->rawData, 0, RenderBufferByteCount);
         ab->xAudioBuffer.AudioBytes = RenderBufferByteCount;
         ab->xAudioBuffer.pAudioData = (const BYTE*)ua_renderBuffers[i].rawData;
@@ -167,8 +162,7 @@ void ua_init_windows(ua_Settings* settings)
     }
 }
 
-void ua_term_windows(void)
-{
+void ua_term_windows(void) {
     IXAudio2SourceVoice_DestroyVoice(ua_xAudio2SourceVoice);
     ua_xAudio2SourceVoice = NULL;
     IXAudio2MasteringVoice_DestroyVoice(ua_xAudio2MasterVoice);
@@ -179,10 +173,9 @@ void ua_term_windows(void)
 
     CoUninitialize();
 
-    for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
-    {
-        void* toFree = ua_renderBuffers[i].rawData;
-        HR_MemFree(&toFree);
+    for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i) {
+        ua_settings.freeFunction(ua_renderBuffers[ua_renderBufferIndex].rawData);
+        ua_renderBufferIndex = (ua_renderBufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
     }
 }
 
