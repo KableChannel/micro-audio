@@ -29,6 +29,7 @@ extern "C"
 #endif
 #include "ua_api.h"
 #include <core/memory.h>
+#include <stddef.h>
 #ifdef _DEBUG
 #include <stdio.h>
 #endif
@@ -39,9 +40,12 @@ void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #endif
 
+void* malloc(size_t);
+void free(void*);
+void* ua_allocateDefault(unsigned numBytes) { return malloc((size_t)numBytes); }
 void ua_init(ua_Settings* ua_InitParams) {
     if (ua_InitParams->allocateFunction == NULL) {
-        ua_InitParams->allocateFunction = malloc;
+        ua_InitParams->allocateFunction = ua_allocateDefault;
     }
     if (ua_InitParams->freeFunction == NULL) {
         ua_InitParams->freeFunction = free;
