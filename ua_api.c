@@ -28,7 +28,6 @@ extern "C"
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif
 #include "ua_api.h"
-#include <core/memory.h>
 #include <stddef.h>
 #ifdef _DEBUG
 #include <stdio.h>
@@ -40,15 +39,20 @@ void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #endif
 
-void* malloc(size_t);
-void free(void*);
-void* ua_allocateDefault(unsigned numBytes) { return malloc((size_t)numBytes); }
+#ifdef _DEBUG
+#define UA_LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
+#else
+#define UA_LOG_ERROR(x)
+#endif
+
 void ua_init(ua_Settings* ua_InitParams) {
     if (ua_InitParams->allocateFunction == NULL) {
-        ua_InitParams->allocateFunction = ua_allocateDefault;
+        UA_LOG_ERROR(ua_InitParams->allocateFunction != NULL);
+        return;
     }
     if (ua_InitParams->freeFunction == NULL) {
-        ua_InitParams->freeFunction = free;
+        UA_LOG_ERROR(ua_InitParams->freeFunction != NULL);
+        return;
     }
 #if _WIN32
     ua_init_windows(ua_InitParams);
@@ -79,12 +83,7 @@ void ua_term(void) {
 // TODO: this should not be a define
 #define UA_RENDER_CHANNEL_COUNT 2
 
-#ifdef _DEBUG
-#define LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
-#else
-#define LOG_ERROR(x)
-#endif
-#define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { LOG_ERROR((x)) return; } } while(0)
+#define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { UA_LOG_ERROR((x)) return; } } while(0)
 
 IXAudio2* ua_xAudio2;
 IXAudio2MasteringVoice* ua_xAudio2MasterVoice;
