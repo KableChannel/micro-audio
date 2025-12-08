@@ -38,9 +38,10 @@ typedef struct {
     void (*freeFunction)(void*);
 	ua_RenderCallback renderCallback;
 	unsigned renderSampleRate;
-	unsigned maxFramesPerRenderBuffer;
-    unsigned maxChannelCount;
-    unsigned _RESERVED;
+	unsigned short maxFramesPerRenderBuffer;
+    unsigned short maxLatencyMs;
+    unsigned short maxChannelCount;
+    unsigned char _RESERVED[6];
 } ua_Settings;
 
 MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);
