@@ -19,11 +19,6 @@
 // SOFTWARE.
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 #ifndef UA_EXPORT_MICRO_AUDIO_LIBRARY
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif

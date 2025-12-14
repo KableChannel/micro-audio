@@ -19,7 +19,8 @@
 // SOFTWARE.
 
 
-#pragma once
+#ifndef __MICRO_AUDIO_API
+#define __MICRO_AUDIO_API
 
 #if defined(_WIN32) && defined(BUILD_SHARED_LIBS)
     #if defined(EXPORT_MICRO_AUDIO_LIBRARY)
@@ -46,3 +47,5 @@ typedef struct {
 
 MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);
 MICRO_AUDIO_API void ua_term(void);
+
+#endif // __MICRO_AUDIO_API
