@@ -19,17 +19,21 @@
 // SOFTWARE.
 
 
-#ifndef UA_EXPORT_MICRO_AUDIO_LIBRARY
+#ifndef EXPORT_MICRO_AUDIO_LIBRARY
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif
 #include "ua_api.h"
 #include <stddef.h>
+#include <string.h>
 #ifdef _DEBUG
 #include <stdio.h>
 #endif
-#undef UA_EXPORT_MICRO_AUDIO_LIBRARY
+#undef EXPORT_MICRO_AUDIO_LIBRARY
 
-#if _WIN32
+#if __APPLE__
+void ua_init_macos(ua_Settings* ua_InitParams);
+void ua_term_macos(void);
+#elif _WIN32
 void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #endif
@@ -40,6 +44,48 @@ void ua_term_windows(void);
 #define UA_LOG_ERROR(x)
 #endif
 
+// TODO: this should not be a define
+#define UA_RENDER_CHANNEL_COUNT 2
+
+typedef struct {
+    float* buffer;
+    unsigned readWriteIndex;
+    unsigned sampleCount;
+} ua_DelayLine;
+
+typedef struct {
+    ua_Settings settings;
+    unsigned workBufferFrameIndex;
+    unsigned workBufferFrameCount;
+    float* workBuffer;
+    ua_DelayLine delayLine;
+    void (*renderToBufferFunction)(float*);
+} ua_Context;
+ua_Context ua_gContext;
+
+void ApplyDelayLine(float* targetBuffer) {
+    const ua_Settings* settings = &ua_gContext.settings;
+    ua_DelayLine* delay = &ua_gContext.delayLine;
+    const float* inBuffer = ua_gContext.workBuffer;
+    const unsigned SampleCount = settings->maxFramesPerRenderBuffer * settings->maxChannelCount;
+    float tmp;
+    for (unsigned i = 0; i < SampleCount; ++i) {
+        tmp = inBuffer[i];
+        targetBuffer[i] = delay->buffer[delay->readWriteIndex];
+        delay->buffer[delay->readWriteIndex] = tmp;
+        delay->readWriteIndex = (delay->readWriteIndex + 1) % delay->sampleCount;
+    }
+}
+
+void RenderToBuffer(float* targetBuffer) {
+    ua_gContext.settings.renderCallback(targetBuffer, ua_gContext.settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
+}
+
+void RenderToBufferWithDelayLine(float* targetBuffer) {
+    ua_gContext.settings.renderCallback(ua_gContext.workBuffer, ua_gContext.settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
+    ApplyDelayLine(targetBuffer);
+}
+
 void ua_init(ua_Settings* ua_InitParams) {
     if (ua_InitParams->allocateFunction == NULL) {
         UA_LOG_ERROR(ua_InitParams->allocateFunction != NULL);
@@ -49,18 +95,126 @@ void ua_init(ua_Settings* ua_InitParams) {
         UA_LOG_ERROR(ua_InitParams->freeFunction != NULL);
         return;
     }
-#if _WIN32
+    
+    ua_gContext.settings = *ua_InitParams;
+    const ua_Settings* settings = &ua_gContext.settings;
+
+    ua_gContext.delayLine.readWriteIndex = 0;
+    ua_gContext.delayLine.sampleCount = (settings->maxLatencyMs * settings->renderSampleRate * settings->maxChannelCount) / 1000;
+    
+    const unsigned MaxWorkBufferByteCount = sizeof(float) * settings->maxFramesPerRenderBuffer * settings->maxChannelCount;
+    ua_gContext.workBuffer = settings->allocateFunction(MaxWorkBufferByteCount);
+    ua_gContext.workBufferFrameCount = settings->maxFramesPerRenderBuffer;
+    ua_gContext.workBufferFrameIndex = ua_gContext.workBufferFrameCount;
+    memset(ua_gContext.workBuffer, 0, MaxWorkBufferByteCount);
+    if (settings->maxLatencyMs != 0) {
+        const unsigned DelayByteCount = ua_gContext.delayLine.sampleCount * sizeof(float);
+        ua_gContext.delayLine.buffer = settings->allocateFunction(DelayByteCount);
+        memset(ua_gContext.delayLine.buffer, 0, DelayByteCount);
+
+        ua_gContext.renderToBufferFunction = RenderToBufferWithDelayLine;
+    }
+    else {
+        ua_gContext.delayLine.buffer = NULL;
+
+        ua_gContext.renderToBufferFunction = RenderToBuffer;
+    }
+    
+#if __APPLE__
+    ua_init_macos(ua_InitParams);
+#elif _WIN32
     ua_init_windows(ua_InitParams);
 #endif
 }
 
 void ua_term(void) {
-#if _WIN32
+#if __APPLE__
+    ua_term_macos();
+#elif _WIN32
     ua_term_windows();
 #endif
 }
 
-#if _WIN32
+#if __APPLE__
+
+#include <CoreAudio/CoreAudio.h>
+#include <AudioUnit/AudioUnit.h>
+#include <math.h>
+
+// Callback function that fills audio buffers with data
+static OSStatus RenderCallback(void *inRefCon,
+                               AudioUnitRenderActionFlags *ioActionFlags,
+                               const AudioTimeStamp *inTimeStamp,
+                               UInt32 inBusNumber,
+                               UInt32 inNumberFrames,
+                               AudioBufferList *ioData) {
+    ua_Context* context = (ua_Context*)inRefCon;
+
+    unsigned frame = 0;
+    unsigned framesLeft = inNumberFrames;
+    while (framesLeft) {
+        if (context->workBufferFrameIndex >= context->workBufferFrameCount) {
+            context->workBufferFrameIndex = 0;
+            context->renderToBufferFunction(context->workBuffer);
+        }
+        
+        const unsigned FramesInWorkBuffer = context->workBufferFrameCount - context->workBufferFrameIndex;
+        const unsigned FramesToProcess = FramesInWorkBuffer < framesLeft ? FramesInWorkBuffer : framesLeft;
+        for (UInt32 i = 0; i < FramesToProcess; ++i) {
+            for (UInt32 channel = 0; channel < ioData->mNumberBuffers; ++channel) {
+                float* buffer = (float*)ioData->mBuffers[channel].mData;
+                buffer[frame + i] = context->workBuffer[(context->workBufferFrameIndex + i) * context->settings.maxChannelCount + channel];
+            }
+        }
+        
+        framesLeft -= FramesToProcess;
+        frame += FramesToProcess;
+        context->workBufferFrameIndex += FramesToProcess;
+    }
+    
+    return noErr;
+}
+
+AudioComponentInstance auHAL;
+
+void ua_init_macos(ua_Settings* ua_InitParams) {
+    AudioComponentDescription desc;
+    desc.componentType = kAudioUnitType_Output;
+    desc.componentSubType = kAudioUnitSubType_DefaultOutput;
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags = 0;
+    desc.componentFlagsMask = 0;
+    
+    AudioComponent comp = AudioComponentFindNext(NULL, &desc);
+    AudioComponentInstanceNew(comp, &auHAL);
+    
+    // 2. Initialize the Audio Unit
+    AudioUnitInitialize(auHAL);
+    
+    // 3. Set the render callback
+    AURenderCallbackStruct callbackStruct;
+    callbackStruct.inputProc = RenderCallback;
+    callbackStruct.inputProcRefCon = &ua_gContext;
+    
+    AudioUnitSetProperty(auHAL,
+                         kAudioUnitProperty_SetRenderCallback,
+                         kAudioUnitScope_Input,
+                         0,
+                         &callbackStruct,
+                         sizeof(callbackStruct));
+    
+    // 4. Start the Audio Unit
+    AudioOutputUnitStart(auHAL);
+}
+
+void ua_term_macos(void) {
+    AudioOutputUnitStop(auHAL);
+    AudioUnitUninitialize(auHAL);
+    AudioComponentInstanceDispose(auHAL);
+}
+
+
+#elif _WIN32
 #define WIN32_LEAN_AND_MEAN
 
 // At /Wall levels of warnings,
@@ -74,47 +228,6 @@ void ua_term(void) {
 
 #include <xaudio2.h>
 #undef WIN32_LEAN_AND_MEAN
-
-typedef struct {
-    float* buffer;
-    unsigned readWriteIndex;
-    unsigned sampleCount;
-} ua_DelayLine;
-
-typedef struct {
-    ua_Settings settings;
-    float* workBuffer;
-    ua_DelayLine delayLine;
-    void (*renderToBuffer)(float*);
-} ua_Context;
-ua_Context ua_gContext;
-
-// TODO: this should not be a define
-#define UA_RENDER_CHANNEL_COUNT 2
-
-void RenderToBuffer(float* targetBuffer) {
-    ua_gContext.settings.renderCallback(targetBuffer, ua_gContext.settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
-}
-
-void ApplyDelayLine(float* targetBuffer)
-{
-    const ua_Settings* settings = &ua_gContext.settings;
-    ua_DelayLine* delay = &ua_gContext.delayLine;
-    const float* inBuffer = ua_gContext.workBuffer;
-    const unsigned SampleCount = settings->maxFramesPerRenderBuffer * settings->maxChannelCount;
-    for (unsigned i = 0; i < SampleCount; ++i)
-    {
-        targetBuffer[i] = delay->buffer[delay->readWriteIndex];
-        delay->buffer[delay->readWriteIndex] = inBuffer[i];
-        delay->readWriteIndex = (delay->readWriteIndex + 1) % delay->sampleCount;
-    }
-}
-
-void RenderToBufferWithDelayLine(float* targetBuffer) {
-    ua_gContext.settings.renderCallback(ua_gContext.workBuffer, ua_gContext.settings.maxFramesPerRenderBuffer, UA_RENDER_CHANNEL_COUNT);
-    ApplyDelayLine(targetBuffer);
-}
-
 
 #define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { UA_LOG_ERROR((x)) return; } } while(0)
 
@@ -134,7 +247,7 @@ unsigned ua_renderBufferIndex = 0;
 void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext) {
     (void)This;
     (void)pBufferContext;
-    ua_gContext.renderToBuffer((float*)ua_renderBuffers[ua_renderBufferIndex].rawData);
+    ua_gContext.renderToBufferFunction((float*)ua_renderBuffers[ua_renderBufferIndex].rawData);
     IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &(ua_renderBuffers[ua_renderBufferIndex].xAudioBuffer), NULL);
     ua_renderBufferIndex = (ua_renderBufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
 }
@@ -159,28 +272,6 @@ IXAudio2VoiceCallback xAudio2Callbacks = {
 };
 
 void ua_init_windows(ua_Settings* settings) {
-    ua_gContext.settings = *settings;
-
-    ua_gContext.delayLine.readWriteIndex = 0;
-    ua_gContext.delayLine.sampleCount = (settings->maxLatencyMs * settings->renderSampleRate * settings->maxChannelCount) / 1000;
-    if (settings->maxLatencyMs != 0) {
-        const unsigned MaxWorkBufferByteCount = sizeof(float) * settings->maxFramesPerRenderBuffer * settings->maxChannelCount;
-        ua_gContext.workBuffer = settings->allocateFunction(MaxWorkBufferByteCount);
-        memset(ua_gContext.workBuffer, 0, MaxWorkBufferByteCount);
-
-        const unsigned DelayByteCount = ua_gContext.delayLine.sampleCount * sizeof(float);
-        ua_gContext.delayLine.buffer = settings->allocateFunction(DelayByteCount);
-        memset(ua_gContext.delayLine.buffer, 0, DelayByteCount);
-
-        ua_gContext.renderToBuffer = RenderToBufferWithDelayLine;
-    }
-    else {
-        ua_gContext.workBuffer = NULL;
-        ua_gContext.delayLine.buffer = NULL;
-
-        ua_gContext.renderToBuffer = RenderToBuffer;
-    }
-
     HRESULT r;
     UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED)); // per Microsoft, first param must be NULL
     UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR)); // per Microsoft, param 2 must be 0
