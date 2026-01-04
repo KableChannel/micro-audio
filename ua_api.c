@@ -47,13 +47,13 @@ void ua_term_windows(void);
 // TODO: this should not be a define
 #define UA_RENDER_CHANNEL_COUNT 2
 
-typedef struct {
+typedef struct ua_DelayLine {
     float* buffer;
     unsigned readWriteIndex;
     unsigned sampleCount;
 } ua_DelayLine;
 
-typedef struct {
+typedef struct ua_Context {
     ua_Settings settings;
     unsigned workBufferFrameIndex;
     unsigned workBufferFrameCount;
@@ -177,31 +177,110 @@ static OSStatus RenderCallback(void *inRefCon,
 
 AudioComponentInstance auHAL;
 
+AudioDeviceID ua_get_default_output_device() {
+    AudioDeviceID deviceID = kAudioDeviceUnknown;
+    UInt32 propertySize = sizeof(AudioDeviceID);
+    AudioObjectPropertyAddress addr = {
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    
+    OSStatus err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
+                                              0, NULL, &propertySize, &deviceID);
+    if (err != noErr) {
+        // Handle error
+        return kAudioDeviceUnknown;
+    }
+    return deviceID;
+}
+
+// Helper to check errors (simplified)
+void CheckError(OSStatus err, const char* message) {
+    if (err != noErr) {
+        printf("%s : %d\n", message, err);
+    }
+}
+
+void ua_test_ranges(AudioDeviceID deviceId)
+{
+    // TODO: THIS NEEDS CLEANUP. A LOT OF CLEANUP.
+    // NEED TO PROVIDE VALID SAMPLE RATES BACK
+    // TO THE USER TO SELECT.
+    AudioObjectPropertyAddress propertyAddress;
+    propertyAddress.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+    propertyAddress.mScope = kAudioObjectPropertyScopeInput;
+    propertyAddress.mElement = kAudioObjectPropertyElementMain;
+    UInt32 propertySize = 0;
+    OSStatus status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress,
+                                                     0, NULL, &propertySize);
+    UInt32 numRanges = propertySize / sizeof(AudioValueRange);
+    
+    AudioValueRange* ranges = (AudioValueRange*)malloc(propertySize);
+    status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
+                                        0, NULL, &propertySize, ranges);
+
+    printf("macOS permits these sample rates:\n");
+    for (UInt32 i = 0; i < numRanges; ++i)
+    {
+        printf("Min: %f Max: %f\n", ranges[i].mMinimum, ranges[i].mMaximum);
+    }
+    free(ranges);
+}
+
 void ua_init_macos(ua_Settings* ua_InitParams) {
     AudioComponentDescription desc;
     desc.componentType = kAudioUnitType_Output;
-    desc.componentSubType = kAudioUnitSubType_DefaultOutput;
+    desc.componentSubType = kAudioUnitSubType_HALOutput;
     desc.componentManufacturer = kAudioUnitManufacturer_Apple;
     desc.componentFlags = 0;
     desc.componentFlagsMask = 0;
     
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
-    AudioComponentInstanceNew(comp, &auHAL);
+    OSStatus status = AudioComponentInstanceNew(comp, &auHAL);
+    status = AudioUnitInitialize(auHAL);
+    AudioDeviceID outputDeviceId = ua_get_default_output_device();
+    status = AudioUnitSetProperty(auHAL, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+                                  0, &outputDeviceId, sizeof(outputDeviceId));
     
-    // 2. Initialize the Audio Unit
-    AudioUnitInitialize(auHAL);
-    
-    // 3. Set the render callback
     AURenderCallbackStruct callbackStruct;
     callbackStruct.inputProc = RenderCallback;
     callbackStruct.inputProcRefCon = &ua_gContext;
     
-    AudioUnitSetProperty(auHAL,
-                         kAudioUnitProperty_SetRenderCallback,
-                         kAudioUnitScope_Input,
-                         0,
-                         &callbackStruct,
-                         sizeof(callbackStruct));
+    // TODO: in the future, the API should probably
+    // only get the closest available frames per buffer
+    // and sample rate, instead of error on mismatch.
+    Float64 targetSampleRate = ua_InitParams->renderSampleRate;
+    
+    /*OSStatus status = 0;
+    AudioObjectPropertyAddress address = {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    Float64 newSampleRate = 0.0;
+    status = AudioObjectSetPropertyData(ua_get_default_output_device(), &address, 0, NULL, sizeof(Float64), &newSampleRate);
+    */
+    
+    
+    ua_test_ranges(outputDeviceId);
+    
+    
+    /*UInt32 enableOutput = 1;
+    const AudioUnitElement AU_OUTPUT_BUS = 0;
+    status = AudioUnitSetProperty(auHAL, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
+                                           AU_OUTPUT_BUS, &enableOutput, sizeof(enableOutput));*/
+    status = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
+                                  0, &targetSampleRate, sizeof(targetSampleRate));
+    status = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input,
+                                  0, &callbackStruct, sizeof(callbackStruct));
+    UInt32 F64Size = sizeof(Float64);
+    status = AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
+                                  0, &targetSampleRate, &F64Size);
+    // status = AudioUnitSetProperty(auHAL, kAudioUnitProperty_ElementCount)
+    
+    assert((unsigned)targetSampleRate == ua_InitParams->renderSampleRate);
+    printf("Output sample rate is now at %f Hz", targetSampleRate);
     
     // 4. Start the Audio Unit
     AudioOutputUnitStart(auHAL);

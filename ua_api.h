@@ -34,7 +34,7 @@
 
 typedef void (*ua_RenderCallback)(float* /* buffer */, unsigned /* frameCount */, unsigned /* channelCount */);
 
-typedef struct {
+typedef struct ua_Settings {
     void* (*allocateFunction)(unsigned);
     void (*freeFunction)(void*);
 	ua_RenderCallback renderCallback;
