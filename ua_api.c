@@ -30,7 +30,7 @@
 #endif
 #undef EXPORT_MICRO_AUDIO_LIBRARY
 
-#if __APPLE__
+#ifdef __APPLE__
 void ua_init_macos(ua_Settings* ua_InitParams);
 void ua_term_macos(void);
 #elif _WIN32
@@ -120,7 +120,7 @@ void ua_init(ua_Settings* ua_InitParams) {
         ua_gContext.renderToBufferFunction = RenderToBuffer;
     }
     
-#if __APPLE__
+#ifdef __APPLE__
     ua_init_macos(ua_InitParams);
 #elif _WIN32
     ua_init_windows(ua_InitParams);
@@ -128,14 +128,14 @@ void ua_init(ua_Settings* ua_InitParams) {
 }
 
 void ua_term(void) {
-#if __APPLE__
+#ifdef __APPLE__
     ua_term_macos();
 #elif _WIN32
     ua_term_windows();
 #endif
 }
 
-#if __APPLE__
+#ifdef __APPLE__
 
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnit.h>
