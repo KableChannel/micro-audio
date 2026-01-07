@@ -38,14 +38,16 @@ typedef struct ua_Settings {
     void* (*allocateFunction)(unsigned);
     void (*freeFunction)(void*);
 	ua_RenderCallback renderCallback;
-	unsigned renderSampleRate;
 	unsigned short maxFramesPerRenderBuffer;
     unsigned short maxLatencyMs;
     unsigned short maxChannelCount;
-    unsigned char _RESERVED[6];
+    unsigned char _RESERVED[2];
 } ua_Settings;
 
-MICRO_AUDIO_API void ua_init(ua_Settings* ua_InitParams);
+#define UA_INVALID_SAMPLE_RATE 0
+typedef unsigned ua_SampleRate;
+
+MICRO_AUDIO_API ua_SampleRate ua_init(ua_Settings* ua_InitParams);
 MICRO_AUDIO_API void ua_term(void);
 
 #endif // __MICRO_AUDIO_API

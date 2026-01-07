@@ -30,18 +30,25 @@
 #endif
 #undef EXPORT_MICRO_AUDIO_LIBRARY
 
+#ifdef _DEBUG
+#define UA_LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
+#else
+#define UA_LOG_ERROR(x)
+#endif
+
 #ifdef __APPLE__
 void ua_init_macos(ua_Settings* ua_InitParams);
 void ua_term_macos(void);
 #elif _WIN32
 void ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
-#endif
-
-#ifdef _DEBUG
-#define UA_LOG_ERROR(x) printf(__FUNCTION__": %s failed!\n", #x);
-#else
-#define UA_LOG_ERROR(x)
+#define WIN32_LEAN_AND_MEAN
+#include <initguid.h>
+#include <mmdeviceapi.h>
+#include <Audioclient.h>
+#undef WIN32_LEAN_AND_MEAN
+#define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { UA_LOG_ERROR(x); return UA_INVALID_SAMPLE_RATE; } } while(0)
+#define UA_CHECK_NO_RETURN(x) do { r = (x); if (!SUCCEEDED(r)) { UA_LOG_ERROR(x); } } while(0)
 #endif
 
 // TODO: this should not be a define
@@ -59,6 +66,7 @@ typedef struct ua_Context {
     unsigned workBufferFrameCount;
     float* workBuffer;
     ua_DelayLine delayLine;
+    ua_SampleRate deviceSampleRate;
     void (*renderToBufferFunction)(float*);
 } ua_Context;
 ua_Context ua_gContext;
@@ -86,21 +94,53 @@ void RenderToBufferWithDelayLine(float* targetBuffer) {
     ApplyDelayLine(targetBuffer);
 }
 
-void ua_init(ua_Settings* ua_InitParams) {
+ua_SampleRate GetDefaultDeviceSampleRate(void) {
+#ifdef __APPLE__
+
+#elif _WIN32
+    // I don't understand why Windows has to be like this, but the CLSID_MMDeviceEnumerator and IID_IMMDeviceEnumerator GUID
+    // do not get defined anywhere when compiling for C language. Therefore, I define them here. Hope they don't change!
+    const GUID mmClassGuid = (GUID){ 0xBCDE0395, 0xE52F, 0x467C, { 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E } };
+    const GUID mmInterfaceGuid = (GUID){ 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
+
+    HRESULT r;
+    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
+    IMMDeviceEnumerator* deviceEnumerator;
+    UA_CHECK(CoCreateInstance(&mmClassGuid, NULL, CLSCTX_ALL, &mmInterfaceGuid, (void**)&deviceEnumerator));
+    IMMDevice* pDefaultDevice;
+    UA_CHECK(deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(deviceEnumerator, eRender, eConsole, &pDefaultDevice));
+
+    IPropertyStore* pStore = NULL;
+    UA_CHECK(pDefaultDevice->lpVtbl->OpenPropertyStore(pDefaultDevice, STGM_READ, &pStore));
+    PROPVARIANT prop = { 0 };
+    UA_CHECK(pStore->lpVtbl->GetValue(pStore, &PKEY_AudioEngine_DeviceFormat, &prop));
+    
+    PWAVEFORMATEX deviceFormatProperties = (PWAVEFORMATEX)prop.blob.pBlobData;
+    return deviceFormatProperties->nSamplesPerSec;
+#endif
+}
+
+ua_SampleRate ua_init(ua_Settings* ua_InitParams) {
+    
     if (ua_InitParams->allocateFunction == NULL) {
         UA_LOG_ERROR(ua_InitParams->allocateFunction != NULL);
-        return;
+        return UA_INVALID_SAMPLE_RATE;
     }
     if (ua_InitParams->freeFunction == NULL) {
         UA_LOG_ERROR(ua_InitParams->freeFunction != NULL);
-        return;
+        return UA_INVALID_SAMPLE_RATE;
     }
-    
+
+    ua_gContext.deviceSampleRate = GetDefaultDeviceSampleRate();
+    if (ua_gContext.deviceSampleRate == UA_INVALID_SAMPLE_RATE) {
+        UA_LOG_ERROR(ua_gContext.deviceSampleRate != UA_INVALID_SAMPLE_RATE);
+        return UA_INVALID_SAMPLE_RATE;
+    }
     ua_gContext.settings = *ua_InitParams;
     const ua_Settings* settings = &ua_gContext.settings;
 
     ua_gContext.delayLine.readWriteIndex = 0;
-    ua_gContext.delayLine.sampleCount = (settings->maxLatencyMs * settings->renderSampleRate * settings->maxChannelCount) / 1000;
+    ua_gContext.delayLine.sampleCount = (settings->maxLatencyMs * ua_gContext.deviceSampleRate * settings->maxChannelCount) / 1000;
     
     const unsigned MaxWorkBufferByteCount = sizeof(float) * settings->maxFramesPerRenderBuffer * settings->maxChannelCount;
     ua_gContext.workBuffer = settings->allocateFunction(MaxWorkBufferByteCount);
@@ -125,6 +165,8 @@ void ua_init(ua_Settings* ua_InitParams) {
 #elif _WIN32
     ua_init_windows(ua_InitParams);
 #endif
+
+    return ua_gContext.deviceSampleRate;
 }
 
 void ua_term(void) {
@@ -308,8 +350,6 @@ void ua_term_macos(void) {
 #include <xaudio2.h>
 #undef WIN32_LEAN_AND_MEAN
 
-#define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { UA_LOG_ERROR((x)) return; } } while(0)
-
 IXAudio2* ua_xAudio2;
 IXAudio2MasteringVoice* ua_xAudio2MasterVoice;
 IXAudio2SourceVoice* ua_xAudio2SourceVoice;
@@ -352,10 +392,10 @@ IXAudio2VoiceCallback xAudio2Callbacks = {
 
 void ua_init_windows(ua_Settings* settings) {
     HRESULT r;
-    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED)); // per Microsoft, first param must be NULL
-    UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR)); // per Microsoft, param 2 must be 0
+    UA_CHECK_NO_RETURN(CoInitializeEx(NULL, COINIT_MULTITHREADED)); // per Microsoft, first param must be NULL
+    UA_CHECK_NO_RETURN(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR)); // per Microsoft, param 2 must be 0
 
-    UA_CHECK(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice, XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
+    UA_CHECK_NO_RETURN(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice, XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
         0, // no flags
         NULL, // use default device
         NULL, // no effects
@@ -365,13 +405,13 @@ void ua_init_windows(ua_Settings* settings) {
     WAVEFORMATEX waveFormat = {
         .wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
         .nChannels = UA_RENDER_CHANNEL_COUNT,
-        .nSamplesPerSec = settings->renderSampleRate,
-        .nAvgBytesPerSec = settings->renderSampleRate * UA_RENDER_CHANNEL_COUNT * BytesPerSample,
+        .nSamplesPerSec = ua_gContext.deviceSampleRate,
+        .nAvgBytesPerSec = ua_gContext.deviceSampleRate * UA_RENDER_CHANNEL_COUNT * BytesPerSample,
         .nBlockAlign = UA_RENDER_CHANNEL_COUNT * BytesPerSample,
         .wBitsPerSample = BytesPerSample * 8,
         .cbSize = 0 // set to zero for PCM or IEEE float
     };
-    UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat, XAUDIO2_VOICE_NOPITCH,
+    UA_CHECK_NO_RETURN(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat, XAUDIO2_VOICE_NOPITCH,
         1.f, // default pitch ratio
         &xAudio2Callbacks,
         NULL, // no sends
