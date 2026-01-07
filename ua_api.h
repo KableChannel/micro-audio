@@ -37,11 +37,10 @@ typedef void (*ua_RenderCallback)(float* /* buffer */, unsigned /* frameCount */
 typedef struct ua_Settings {
     void* (*allocateFunction)(unsigned);
     void (*freeFunction)(void*);
-	ua_RenderCallback renderCallback;
-	unsigned short maxFramesPerRenderBuffer;
+	ua_RenderCallback process;
+	unsigned short maxFramesPerBuffer;
     unsigned short maxLatencyMs;
     unsigned short maxChannelCount;
-    unsigned char _RESERVED[2];
 } ua_Settings;
 
 #define UA_INVALID_SAMPLE_RATE 0

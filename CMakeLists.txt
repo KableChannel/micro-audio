@@ -10,6 +10,16 @@ project(
 	LANGUAGES C
 )
 
+if (MSVC)
+    # warning level 4 and all warnings as errors
+    add_compile_options(/Wall /WX /wd4710 /wd4711 /wd5045 /wd4820)
+	set_directory_properties(PROPERTIES COMPILE_DEFINITIONS $<$<CONFIG:Debug>:_DEBUG>)
+	add_compile_definitions($<$<CONFIG:Debug>:_DEBUG>)
+else()
+    # lots of warnings and all warnings as errors
+    add_compile_options(-Wall -Wextra -Wconversion -Wno-sign-conversion -Wdouble-promotion -Wno-unused-parameter -Wno-unused-function)
+endif()
+
 option(BUILD_SHARED_LIBS "Turn on if you want to build dynamic libraries." OFF)
 if(BUILD_SHARED_LIBS)
 add_compile_definitions(BUILD_SHARED_LIBS)
