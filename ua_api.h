@@ -21,12 +21,12 @@
 
 #if defined(_WIN32) && defined(BUILD_SHARED_LIBS)
     #if defined(EXPORT_MICRO_AUDIO_LIBRARY)
-        #define MICRO_AUDIO_API __declspec(dllexport)
+        #define MICRO_AUDIO_API_EXPORT __declspec(dllexport)
     #else // import harmony library
-        #define MICRO_AUDIO_API __declspec(dllimport)
+        #define MICRO_AUDIO_API_EXPORT __declspec(dllimport)
     #endif // defined(EXPORT_HARMONY_LIBRARY)
 #else
-    #define MICRO_AUDIO_API
+    #define MICRO_AUDIO_API_EXPORT
 #endif // defined(_WIN32)
 
 //                                buffer, # frames, # channels
@@ -44,7 +44,7 @@ typedef struct ua_Settings {
 #define UA_INVALID_SAMPLE_RATE 0
 typedef unsigned ua_SampleRate;
 
-MICRO_AUDIO_API ua_SampleRate ua_init(ua_Settings* ua_InitParams);
-MICRO_AUDIO_API void ua_term(void);
+MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(ua_Settings* ua_InitParams);
+MICRO_AUDIO_API_EXPORT void ua_term(void);
 
 #endif // __MICRO_AUDIO_API
