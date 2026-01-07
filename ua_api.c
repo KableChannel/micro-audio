@@ -33,6 +33,9 @@
 #ifdef __APPLE__
 void ua_init_macos(ua_Settings* ua_InitParams);
 void ua_term_macos(void);
+#include <CoreAudio/CoreAudio.h>
+#include <AudioUnit/AudioUnit.h>
+#include <math.h>
 #include <string.h>
 #elif _WIN32
 void ua_init_windows(ua_Settings* ua_InitParams);
@@ -100,7 +103,30 @@ void RenderToBufferWithDelayLine(float* targetBuffer) {
 
 ua_SampleRate GetDefaultDeviceSampleRate(void) {
 #ifdef __APPLE__
+    AudioDeviceID deviceId = kAudioDeviceUnknown;
+    UInt32 propertySize = sizeof(AudioDeviceID);
+    AudioObjectPropertyAddress addr = {
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
+                                                 0, NULL, &propertySize, &deviceId);
+    if (status != noErr) {
+        // Handle error
+        return UA_INVALID_SAMPLE_RATE;
+    }
+    
+    AudioObjectPropertyAddress propertyAddress;
+    propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
+    propertyAddress.mScope = kAudioObjectPropertyScopeInput;
+    propertyAddress.mElement = kAudioObjectPropertyElementMain;
+    Float64 sampleRateAsFloat;
+    propertySize = sizeof(Float64);
+    status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
+                                        0, NULL, &propertySize, &sampleRateAsFloat);
 
+    return (ua_SampleRate)sampleRateAsFloat;
 #elif _WIN32
     // I don't understand why Windows is like this, but the CLSID_MMDeviceEnumerator and 
     // IID_IMMDeviceEnumerator GUID do not get defined anywhere when compiling for C language. 
@@ -192,10 +218,6 @@ void ua_term(void) {
 
 #ifdef __APPLE__
 
-#include <CoreAudio/CoreAudio.h>
-#include <AudioUnit/AudioUnit.h>
-#include <math.h>
-
 // Callback function that fills audio buffers with data
 static OSStatus RenderCallback(void *inRefCon,
                                AudioUnitRenderActionFlags *ioActionFlags,
@@ -219,14 +241,14 @@ static OSStatus RenderCallback(void *inRefCon,
         for (UInt32 i = 0; i < FramesToProcess; ++i) {
             for (UInt32 channel = 0; channel < ioData->mNumberBuffers; ++channel) {
                 float* buffer = (float*)ioData->mBuffers[channel].mData;
-                buffer[frame + i] = context->workBuffer[(workBuffer->frameIndex + i) 
+                buffer[frame + i] = workBuffer->sampleData[(workBuffer->frameIndex + i)
                                   * context->settings.maxChannelCount + channel];
             }
         }
         
         framesLeft -= FramesToProcess;
         frame += FramesToProcess;
-        context->workBufferFrameIndex += FramesToProcess;
+        workBuffer->frameIndex += FramesToProcess;
     }
     
     return noErr;
@@ -259,7 +281,7 @@ void CheckError(OSStatus err, const char* message) {
     }
 }
 
-void ua_test_ranges(AudioDeviceID deviceId)
+/*void ua_test_ranges(AudioDeviceID deviceId)
 {
     // TODO: THIS NEEDS CLEANUP. A LOT OF CLEANUP.
     // NEED TO PROVIDE VALID SAMPLE RATES BACK
@@ -283,7 +305,7 @@ void ua_test_ranges(AudioDeviceID deviceId)
         printf("Min: %f Max: %f\n", ranges[i].mMinimum, ranges[i].mMaximum);
     }
     free(ranges);
-}
+}*/
 
 void ua_init_macos(ua_Settings* ua_InitParams) {
     AudioComponentDescription desc;
@@ -307,7 +329,7 @@ void ua_init_macos(ua_Settings* ua_InitParams) {
     // TODO: in the future, the API should probably
     // only get the closest available frames per buffer
     // and sample rate, instead of error on mismatch.
-    Float64 targetSampleRate = ua_InitParams->renderSampleRate; // now this is busted
+    Float64 targetSampleRate = ua_gContext.deviceSampleRate;
     
     /*
     AudioObjectPropertyAddress address = {
@@ -320,7 +342,7 @@ void ua_init_macos(ua_Settings* ua_InitParams) {
                                         0, NULL, sizeof(Float64), &newSampleRate);
     */
     
-    ua_test_ranges(outputDeviceId);
+    // ua_test_ranges(outputDeviceId);
     
     /*UInt32 enableOutput = 1;
     const AudioUnitElement AU_OUTPUT_BUS = 0;
@@ -335,8 +357,7 @@ void ua_init_macos(ua_Settings* ua_InitParams) {
                              0, &targetSampleRate, &F64Size);
     // status = AudioUnitSetProperty(auHAL, kAudioUnitProperty_ElementCount)
     
-    assert((unsigned)targetSampleRate == ua_InitParams->renderSampleRate); // busted too
-    printf("Output sample rate is now at %f Hz", targetSampleRate);
+    printf("Output sample rate is now at %f Hz\n", targetSampleRate);
     
     // 4. Start the Audio Unit
     AudioOutputUnitStart(auHAL);
