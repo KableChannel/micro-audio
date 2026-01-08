@@ -28,17 +28,19 @@
 #else
     #define MICRO_AUDIO_API_EXPORT
 #endif // defined(_WIN32)
+//                                 buffer, # frames, # channels
+typedef void (*ua_AudioCallbackFn)(float*, unsigned, unsigned);
+typedef void* (*ua_AllocateFn)(unsigned);
+typedef void (*ua_FreeFn)(void*);
 
-//                                buffer, # frames, # channels
-typedef void (*ua_RenderCallback)(float*, unsigned, unsigned);
 
 typedef struct ua_Settings {
-    void* (*allocateFunction)(unsigned);
-    void (*freeFunction)(void*);
-	ua_RenderCallback process;
-	unsigned short maxFramesPerBuffer;
+    ua_AllocateFn memAllocate;
+    ua_FreeFn memFree;
+	ua_AudioCallbackFn audioCallback;
+	unsigned short framesPerBuffer;
+    unsigned short numChannels;
     unsigned short maxLatencyMs;
-    unsigned short maxChannelCount;
 } ua_Settings;
 
 #define UA_INVALID_SAMPLE_RATE 0
