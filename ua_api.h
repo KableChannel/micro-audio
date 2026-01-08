@@ -39,8 +39,8 @@ typedef struct ua_Settings {
     ua_FreeFn memFree;
 	ua_AudioCallbackFn audioCallback;
 	unsigned short framesPerBuffer;
-    unsigned short numChannels;
     unsigned short maxLatencyMs;
+    unsigned char numChannels;
 } ua_Settings;
 
 #define UA_INVALID_SAMPLE_RATE 0
