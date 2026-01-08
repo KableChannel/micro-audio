@@ -54,16 +54,16 @@ void ua_term_windows(void);
 
 typedef struct ua_AudioBuffer
 {
-    unsigned frameIndex;
-    unsigned numChannels;
-    unsigned numFrames;
     float* data;
+    unsigned frameIndex;
+    unsigned numFrames;
+    unsigned char numChannels;
 } ua_AudioBuffer;
 
 typedef struct ua_AudioFormat
 {
     ua_SampleRate sampleRate;
-    unsigned numChannels;
+    unsigned char numChannels;
 } ua_AudioFormat;
 
 #define UA_MAX_CHANNEL_CONNECTIONS_PER_MAP 256
@@ -200,7 +200,7 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     PWAVEFORMATEX deviceFormatProperties = (PWAVEFORMATEX)prop.blob.pBlobData;
 
     ua_AudioFormat format;
-    format.numChannels = deviceFormatProperties->nChannels;
+    format.numChannels = (unsigned char)deviceFormatProperties->nChannels;
     format.sampleRate = deviceFormatProperties->nSamplesPerSec; // should be called nFramesPerSec
     return format;
 #endif
@@ -242,7 +242,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     InitChannelMaps();
     ua_gContext.channelMap.numConnections = ua_InitParams->numChannels;
     ua_gContext.channelMap.numSourceChannels = ua_InitParams->numChannels;
-    ua_gContext.channelMap.numSinkChannels = deviceFormat->numChannels;
+    ua_gContext.channelMap.numSinkChannels = (unsigned char)deviceFormat->numChannels;
     for (unsigned char i = 0; i < ua_gContext.channelMap.numConnections; ++i)
     {
         ua_gContext.channelMap.connections[i].scaleFactor = 1.f;
@@ -553,7 +553,30 @@ void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext)
 {
     (void)This;
     (void)pBufferContext;
-    ua_gContext.renderToBufferFunction(&ua_buffers[ua_bufferIndex].buffer);
+
+    ua_AudioBuffer* sinkBuffer = &ua_buffers[ua_bufferIndex].buffer;
+    memset(sinkBuffer->data, 0, sizeof(float) * sinkBuffer->numChannels * sinkBuffer->numFrames);
+    ua_AudioBuffer* sourceBuffer = &ua_gContext.workBuffer;
+    if (sourceBuffer->numFrames != sinkBuffer->numFrames)
+    {
+        exit(0);
+    }
+
+    // TODO: this is repeated logic from macOS. Should consolidate.
+    ua_gContext.renderToBufferFunction(sourceBuffer);
+    const ua_ChannelMap* Map = &ua_gContext.channelMap;
+    for (unsigned char mapIndex = 0; mapIndex < Map->numConnections; ++mapIndex)
+    {
+        const unsigned char SourceChannel = Map->connections[mapIndex].sourceChannel;
+        const unsigned char SinkChannel = Map->connections[mapIndex].sinkChannel;
+        const float ScaleFactor = Map->connections[mapIndex].scaleFactor;
+        for (unsigned frame = 0; frame < sinkBuffer->numFrames; ++frame)
+        {
+            const float Sample = sourceBuffer->data[frame * sourceBuffer->numChannels + SourceChannel];
+            sinkBuffer->data[frame * sinkBuffer->numChannels + SinkChannel] += Sample * ScaleFactor;
+        }
+    }
+
     IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice,
         &(ua_buffers[ua_bufferIndex].xAudioBuffer), NULL);
     ua_bufferIndex = (ua_bufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
@@ -600,13 +623,14 @@ void ua_init_windows(ua_Settings* settings)
     ));
     const WORD BytesPerSample = sizeof(float);
     const ua_SampleRate SampleRate = ua_gContext.deviceFormat.sampleRate;
+    const unsigned char NumChannels = ua_gContext.deviceFormat.numChannels;
     WAVEFORMATEX waveFormat =
     {
         .wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-        .nChannels = settings->numChannels,
+        .nChannels = NumChannels,
         .nSamplesPerSec = SampleRate,
-        .nAvgBytesPerSec = SampleRate * settings->numChannels * BytesPerSample,
-        .nBlockAlign = settings->numChannels * BytesPerSample,
+        .nAvgBytesPerSec = SampleRate * NumChannels * BytesPerSample,
+        .nBlockAlign = NumChannels * BytesPerSample,
         .wBitsPerSample = BytesPerSample * 8,
         .cbSize = 0 // set to zero for PCM or IEEE float
     };
@@ -618,7 +642,7 @@ void ua_init_windows(ua_Settings* settings)
 
     ua_bufferIndex = 0;
     const unsigned short FramesPerBuffer = settings->framesPerBuffer;
-    const unsigned BufferByteCount = FramesPerBuffer * settings->numChannels * sizeof(float);
+    const unsigned BufferByteCount = FramesPerBuffer * NumChannels * sizeof(float);
     for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
     {
         ua_XAudio2Buffer* ab = &ua_buffers[ua_bufferIndex];
@@ -626,7 +650,7 @@ void ua_init_windows(ua_Settings* settings)
         ab->rawData = settings->memAllocate(BufferByteCount);
         
         ab->buffer.data = (float*)ab->rawData;
-        ab->buffer.numChannels = settings->numChannels;
+        ab->buffer.numChannels = NumChannels;
         ab->buffer.numFrames = FramesPerBuffer;
 
         memset(ab->rawData, 0, BufferByteCount);
