@@ -51,6 +51,8 @@ void ua_term_windows(void);
     UA_LOG_ERROR(x); } } while(0)
 #endif
 
+#define UA_MIN(a, b) ((a) < (b) ? (a) : (b))
+
 
 typedef struct ua_AudioBuffer
 {
@@ -240,7 +242,9 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     }
     
     InitChannelMaps();
-    ua_gContext.channelMap.numConnections = ua_InitParams->numChannels;
+    const unsigned char MinConnections = 
+        UA_MIN(ua_InitParams->numChannels, deviceFormat->numChannels);
+    ua_gContext.channelMap.numConnections = MinConnections;
     ua_gContext.channelMap.numSourceChannels = ua_InitParams->numChannels;
     ua_gContext.channelMap.numSinkChannels = (unsigned char)deviceFormat->numChannels;
     for (unsigned char i = 0; i < ua_gContext.channelMap.numConnections; ++i)
@@ -322,8 +326,6 @@ void ua_term(void)
 }
 
 #ifdef __APPLE__
-
-
 // Callback function that fills audio buffers with data
 static OSStatus RenderCallback(void *inRefCon,
                                AudioUnitRenderActionFlags *ioActionFlags,
