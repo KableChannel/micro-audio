@@ -37,6 +37,8 @@ void ua_term_macos(void);
 #include <AudioUnit/AudioUnit.h>
 #include <math.h>
 #include <string.h>
+#define UA_CHECK(x, ret) do { s = (x); if (s != noErr) { \
+    UA_LOG_ERROR(x); return (ret); } } while(0)
 #elif _WIN32
 ua_SampleRate ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
@@ -134,7 +136,7 @@ void RenderToBufferWithDelayLine(ua_AudioBuffer* targetBuffer)
 ua_AudioFormat GetDefaultDeviceFormat(void)
 {
 #ifdef __APPLE__
-    ua_AudioFormat format = (ua_AudioFormat){ .numChannels = 0 };
+    ua_AudioFormat format = { .sampleRate = UA_INVALID_SAMPLE_RATE, .numChannels = 0 };
 
     AudioDeviceID deviceId = kAudioDeviceUnknown;
     UInt32 propertySize = sizeof(AudioDeviceID);
@@ -144,14 +146,9 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
         kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain
     };
-    OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
-        0, NULL, &propertySize, &deviceId);
-    if (status != noErr)
-    {
-        // Handle error
-        return format;
-    }
-
+    OSStatus s;
+    UA_CHECK(AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL,
+                                        &propertySize, &deviceId), format);
     AudioObjectPropertyAddress propertyAddress;
     propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
     propertyAddress.mScope = kAudioObjectPropertyScopeInput;
@@ -159,20 +156,21 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     Float64 sampleRateAsFloat;
 
     propertySize = sizeof(Float64);
-    status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
-        0, NULL, &propertySize, &sampleRateAsFloat);
-
+    UA_CHECK(AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
+                                        &propertySize, &sampleRateAsFloat), format);
     format.sampleRate = (ua_SampleRate)sampleRateAsFloat;
-
     propertyAddress.mSelector = kAudioDevicePropertyPreferredChannelLayout;
     propertyAddress.mScope = kAudioObjectPropertyScopeOutput; // WHY IS THIS OUTPUT???
     propertyAddress.mElement = kAudioObjectPropertyElementMain;
     propertySize = sizeof(AudioChannelLayout);
     AudioChannelLayout channelLayout;
-    status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL, &propertySize);
-    status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
-        0, NULL, &propertySize, &channelLayout);
-    format.numChannels = channelLayout.mNumberChannelDescriptions; // just care about # descriptions
+    UA_CHECK(AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
+                                            &propertySize), format);
+    UA_CHECK(AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
+                                        &propertySize, &channelLayout), format);
+    // # channel descriptions = # channels
+    format.numChannels = (unsigned char)channelLayout.mNumberChannelDescriptions;
+    
     return format;
 #elif _WIN32
     // I don't understand why Windows is like this, but the CLSID_MMDeviceEnumerator and
@@ -265,13 +263,9 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     ua_gContext.settings = *ua_InitParams;
 
     if (ua_InitParams->memAllocate == NULL)
-    {
         ua_gContext.settings.memAllocate = AllocateHelper;
-    }
     if (ua_InitParams->memFree == NULL)
-    {
         ua_gContext.settings.memFree = free;
-    }
 
     const ua_Settings* settings = &ua_gContext.settings;
 
@@ -391,9 +385,9 @@ AudioDeviceID ua_get_default_output_device()
     UInt32 propertySize = sizeof(AudioDeviceID);
     AudioObjectPropertyAddress addr =
     {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
+        .mSelector = kAudioHardwarePropertyDefaultOutputDevice,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain
     };
 
     AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &propertySize, &deviceID);
@@ -401,36 +395,39 @@ AudioDeviceID ua_get_default_output_device()
     return deviceID;
 }
 
-void ua_init_macos(ua_Settings* ua_InitParams)
+ua_SampleRate ua_init_macos(ua_Settings* ua_InitParams)
 {
-    AudioComponentDescription desc;
-    desc.componentType = kAudioUnitType_Output;
-    desc.componentSubType = kAudioUnitSubType_HALOutput;
-    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
-    desc.componentFlags = 0;
-    desc.componentFlagsMask = 0;
+    AudioComponentDescription desc =
+    {
+        .componentType = kAudioUnitType_Output,
+        .componentSubType = kAudioUnitSubType_HALOutput,
+        .componentManufacturer = kAudioUnitManufacturer_Apple,
+        .componentFlags = 0,
+        .componentFlagsMask = 0,
+    };
 
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
-    OSStatus s = AudioComponentInstanceNew(comp, &auHAL);
-    s = AudioUnitInitialize(auHAL);
+    OSStatus s;
+    UA_CHECK(AudioComponentInstanceNew(comp, &auHAL), UA_INVALID_SAMPLE_RATE);
+    UA_CHECK(AudioUnitInitialize(auHAL), UA_INVALID_SAMPLE_RATE);
     AudioDeviceID outputDeviceId = ua_get_default_output_device();
-    s = AudioUnitSetProperty(auHAL, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
-        0, &outputDeviceId, sizeof(outputDeviceId));
+    const AudioUnitPropertyID kCurrentDevice = kAudioOutputUnitProperty_CurrentDevice;
+    UA_CHECK(AudioUnitSetProperty(auHAL, kCurrentDevice, kAudioUnitScope_Global, 0,
+             &outputDeviceId, sizeof(outputDeviceId)), UA_INVALID_SAMPLE_RATE);
 
+    Float64 targetSampleRate = ua_gContext.deviceFormat.sampleRate;
+    UA_CHECK(AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 0,
+             &targetSampleRate, sizeof(targetSampleRate)), UA_INVALID_SAMPLE_RATE);
+    
     AURenderCallbackStruct callbackStruct;
     callbackStruct.inputProc = RenderCallback;
     callbackStruct.inputProcRefCon = &ua_gContext;
-
-    Float64 targetSampleRate = ua_gContext.deviceFormat.sampleRate;
-    s = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
-        0, &targetSampleRate, sizeof(targetSampleRate));
-    s = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input,
-        0, &callbackStruct, sizeof(callbackStruct));
+    const AudioUnitPropertyID kRenderCallback = kAudioUnitProperty_SetRenderCallback;
+    UA_CHECK(AudioUnitSetProperty(auHAL, kRenderCallback, kAudioUnitScope_Input, 0,
+             &callbackStruct, sizeof(callbackStruct)), UA_INVALID_SAMPLE_RATE);
     UInt32 F64Size = sizeof(Float64);
-    s = AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
-        0, &targetSampleRate, &F64Size);
-
-    printf("Output sample rate is now at %f Hz\n", targetSampleRate);
+    UA_CHECK(AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 0,
+             &targetSampleRate, &F64Size), UA_INVALID_SAMPLE_RATE);
 
     AudioOutputUnitStart(auHAL);
 
