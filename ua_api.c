@@ -31,24 +31,22 @@
 #endif
 
 #ifdef __APPLE__
-void ua_init_macos(ua_Settings* ua_InitParams);
+ua_SampleRate ua_init_macos(ua_Settings* ua_InitParams);
 void ua_term_macos(void);
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnit.h>
 #include <math.h>
 #include <string.h>
 #elif _WIN32
-void ua_init_windows(ua_Settings* ua_InitParams);
+ua_SampleRate ua_init_windows(ua_Settings* ua_InitParams);
 void ua_term_windows(void);
 #define WIN32_LEAN_AND_MEAN
 #include <initguid.h>
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
 #undef WIN32_LEAN_AND_MEAN
-#define UA_CHECK_WITH_RETURN(x, ret) do { r = (x); if (!SUCCEEDED(r)) { \
+#define UA_CHECK(x, ret) do { r = (x); if (!SUCCEEDED(r)) { \
     UA_LOG_ERROR(x); return (ret); } } while(0)
-#define UA_CHECK(x) do { r = (x); if (!SUCCEEDED(r)) { \
-    UA_LOG_ERROR(x); } } while(0)
 #endif
 
 #define UA_MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -287,6 +285,11 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     const unsigned MaxWorkBufferByteCount = sizeof(float) * MaxSamplesPerBuffer;
     ua_AudioBuffer* workBuffer = &ua_gContext.workBuffer;
     workBuffer->data = settings->memAllocate(MaxWorkBufferByteCount);
+    if (workBuffer->data == NULL)
+    {
+        UA_LOG_ERROR(workBuffer->data != NULL);
+        return UA_INVALID_SAMPLE_RATE;
+    }
     workBuffer->numFrames = settings->framesPerBuffer;
     workBuffer->frameIndex = workBuffer->numFrames;
     workBuffer->numChannels = settings->numChannels;
@@ -296,6 +299,11 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
         const unsigned NumDelaySamples = delayLine->numFrames * ua_gContext.delayLine.numChannels;
         const unsigned NumDelayBytes = NumDelaySamples * sizeof(float);
         ua_gContext.delayLine.data = settings->memAllocate(NumDelayBytes);
+        if (ua_gContext.delayLine.data == NULL)
+        {
+            UA_LOG_ERROR(ua_gContext.delayLine.data != NULL);
+            return UA_INVALID_SAMPLE_RATE;
+        }
         memset(ua_gContext.delayLine.data, 0, NumDelayBytes);
 
         ua_gContext.renderToBufferFunction = RenderToBufferWithDelayLine;
@@ -308,12 +316,10 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     }
 
 #ifdef __APPLE__
-    ua_init_macos(ua_InitParams);
+    return ua_init_macos(ua_InitParams);
 #elif _WIN32
-    ua_init_windows(ua_InitParams);
+    return ua_init_windows(ua_InitParams);
 #endif
-
-    return deviceFormat->sampleRate;
 }
 
 void ua_term(void)
@@ -326,7 +332,6 @@ void ua_term(void)
 }
 
 #ifdef __APPLE__
-// Callback function that fills audio buffers with data
 static OSStatus RenderCallback(void* inRefCon,
     AudioUnitRenderActionFlags* ioActionFlags,
     const AudioTimeStamp* inTimeStamp,
@@ -391,23 +396,9 @@ AudioDeviceID ua_get_default_output_device()
         kAudioObjectPropertyElementMain
     };
 
-    OSStatus err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
-        0, NULL, &propertySize, &deviceID);
-    if (err != noErr)
-    {
-        // Handle error
-        return kAudioDeviceUnknown;
-    }
-    return deviceID;
-}
+    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &propertySize, &deviceID);
 
-// Helper to check errors (simplified)
-void CheckError(OSStatus err, const char* message)
-{
-    if (err != noErr)
-    {
-        printf("%s : %d\n", message, err);
-    }
+    return deviceID;
 }
 
 void ua_init_macos(ua_Settings* ua_InitParams)
@@ -442,6 +433,8 @@ void ua_init_macos(ua_Settings* ua_InitParams)
     printf("Output sample rate is now at %f Hz\n", targetSampleRate);
 
     AudioOutputUnitStart(auHAL);
+
+    return ua_gContext.deviceFormat.sampleRate;
 }
 
 void ua_term_macos(void)
@@ -451,12 +444,10 @@ void ua_term_macos(void)
     AudioComponentInstanceDispose(auHAL);
 }
 
-
 #elif _WIN32
 #define WIN32_LEAN_AND_MEAN
 
-// At /Wall levels of warnings,
-// these must be defined for MS.
+// At /Wall levels of warnings, these must be defined for MS.
 #ifndef WINAPI_PARTITION_TV_APP 
 #define WINAPI_PARTITION_TV_APP 0
 #endif
@@ -479,19 +470,17 @@ typedef struct ua_XAudio2Buffer
 
 #define UA_RENDER_BUFFER_COUNT 2
 ua_XAudio2Buffer ua_buffers[UA_RENDER_BUFFER_COUNT] = { NULL };
-unsigned ua_bufferIndex = 0;
 
-void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext)
+void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pCtx)
 {
     (void)This;
-    (void)pBufferContext;
-
-    ua_AudioBuffer* sink = &ua_buffers[ua_bufferIndex].buffer;
+    ua_XAudio2Buffer* self = (ua_XAudio2Buffer*)pCtx;
+    ua_AudioBuffer* sink = &self->buffer;
     memset(sink->data, 0, sizeof(float) * sink->numChannels * sink->numFrames);
     ua_AudioBuffer* source = &ua_gContext.workBuffer;
     if (source->numFrames != sink->numFrames)
     {
-        exit(0);
+        exit(0); // TODO: not this
     }
 
     // TODO: this is repeated logic from macOS. Should consolidate.
@@ -509,9 +498,7 @@ void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext)
         }
     }
 
-    IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice,
-        &(ua_buffers[ua_bufferIndex].xAudioBuffer), NULL);
-    ua_bufferIndex = (ua_bufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
+    IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &self->xAudioBuffer, NULL);
 }
 
 void XA2OSE(IXAudio2VoiceCallback* pXa2) { (void)pXa2; } // unused stubs
@@ -538,13 +525,13 @@ IXAudio2VoiceCallback xAudio2Callbacks =
     }
 };
 
-void ua_init_windows(ua_Settings* settings)
+ua_SampleRate ua_init_windows(ua_Settings* settings)
 {
     HRESULT r;
     // per Microsoft, first param must be NULL
-    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
+    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED), UA_INVALID_SAMPLE_RATE);
     // per Microsoft, param 2 must be 0
-    UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR));
+    UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR), UA_INVALID_SAMPLE_RATE);
 
     UA_CHECK(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice,
         XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
@@ -552,7 +539,7 @@ void ua_init_windows(ua_Settings* settings)
         NULL, // use default device
         NULL, // no effects
         AudioCategory_GameMedia
-    ));
+    ), UA_INVALID_SAMPLE_RATE);
     const WORD BytesPerSample = sizeof(float);
     const ua_SampleRate SampleRate = ua_gContext.deviceFormat.sampleRate;
     const unsigned char NumChannels = ua_gContext.deviceFormat.numChannels;
@@ -569,17 +556,22 @@ void ua_init_windows(ua_Settings* settings)
     const float DefaultPitchRatio = 1.f;
     UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat,
         XAUDIO2_VOICE_NOPITCH, DefaultPitchRatio, &xAudio2Callbacks, NULL, NULL // no sends/effects
-    ));
+    ), UA_INVALID_SAMPLE_RATE);
     IXAudio2SourceVoice_Start(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
 
-    ua_bufferIndex = 0;
     const unsigned short FramesPerBuffer = settings->framesPerBuffer;
     const unsigned BufferByteCount = FramesPerBuffer * NumChannels * sizeof(float);
     for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
     {
-        ua_XAudio2Buffer* ab = &ua_buffers[ua_bufferIndex];
+        ua_XAudio2Buffer* ab = &ua_buffers[i];
         *ab = (const ua_XAudio2Buffer){ 0 };
+        ab->xAudioBuffer.pContext = ab;
         ab->rawData = settings->memAllocate(BufferByteCount);
+        if (ab->rawData == NULL)
+        {
+            UA_LOG_ERROR(ab->rawData != NULL);
+            return UA_INVALID_SAMPLE_RATE;
+        }
 
         ab->buffer.data = (float*)ab->rawData;
         ab->buffer.numChannels = NumChannels;
@@ -589,8 +581,9 @@ void ua_init_windows(ua_Settings* settings)
         ab->xAudioBuffer.AudioBytes = BufferByteCount;
         ab->xAudioBuffer.pAudioData = (const BYTE*)ua_buffers[i].rawData;
         IXAudio2SourceVoice_SubmitSourceBuffer(ua_xAudio2SourceVoice, &ab->xAudioBuffer, NULL);
-        ua_bufferIndex = (ua_bufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
     }
+
+    return ua_gContext.deviceFormat.sampleRate;
 }
 
 void ua_term_windows(void)
@@ -607,8 +600,7 @@ void ua_term_windows(void)
 
     for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
     {
-        ua_gContext.settings.memFree(ua_buffers[ua_bufferIndex].rawData);
-        ua_bufferIndex = (ua_bufferIndex + 1) % UA_RENDER_BUFFER_COUNT;
+        ua_gContext.settings.memFree(ua_buffers[i].rawData);
     }
 
     if (ua_gContext.workBuffer.data != NULL)
