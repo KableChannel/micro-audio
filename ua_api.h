@@ -20,13 +20,13 @@
 #define __MICRO_AUDIO_API
 
 #if defined(_WIN32) && defined(BUILD_SHARED_LIBS)
-    #if defined(EXPORT_MICRO_AUDIO_LIBRARY)
-        #define MICRO_AUDIO_API_EXPORT __declspec(dllexport)
-    #else // import harmony library
-        #define MICRO_AUDIO_API_EXPORT __declspec(dllimport)
-    #endif // defined(EXPORT_HARMONY_LIBRARY)
+#if defined(EXPORT_MICRO_AUDIO_LIBRARY)
+#define MICRO_AUDIO_API_EXPORT __declspec(dllexport)
+#else // import harmony library
+#define MICRO_AUDIO_API_EXPORT __declspec(dllimport)
+#endif // defined(EXPORT_HARMONY_LIBRARY)
 #else
-    #define MICRO_AUDIO_API_EXPORT
+#define MICRO_AUDIO_API_EXPORT
 #endif // defined(_WIN32)
 //                                 buffer, # frames, # channels
 typedef void (*ua_AudioCallbackFn)(float*, unsigned, unsigned);
@@ -37,8 +37,8 @@ typedef void (*ua_FreeFn)(void*);
 typedef struct ua_Settings {
     ua_AllocateFn memAllocate;
     ua_FreeFn memFree;
-	ua_AudioCallbackFn audioCallback;
-	unsigned short framesPerBuffer;
+    ua_AudioCallbackFn audioCallback;
+    unsigned short framesPerBuffer;
     unsigned short maxLatencyMs;
     unsigned char numChannels;
 } ua_Settings;

@@ -1,8 +1,8 @@
 // Copyright (c) Caleb Klomparens
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 // associated documentation files (the "Software"), to deal in the Software without restriction,
-// including without limitation the rights to use, copy, modify, merge, publish, distribute, 
+// including without limitation the rights to use, copy, modify, merge, publish, distribute,
 // sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 // 
@@ -10,7 +10,7 @@
 // substantial portions of the Software.
 // 
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
-// NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
+// NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
 // NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
@@ -80,7 +80,7 @@ typedef struct ua_ChannelMap
 {
     unsigned char numSourceChannels;
     unsigned char numSinkChannels;
-    
+
     unsigned char numConnections;
     ua_ChannelConnection connections[UA_MAX_CHANNEL_CONNECTIONS_PER_MAP];
 } ua_ChannelMap;
@@ -137,7 +137,7 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
 {
 #ifdef __APPLE__
     ua_AudioFormat format = (ua_AudioFormat){ .numChannels = 0 };
-    
+
     AudioDeviceID deviceId = kAudioDeviceUnknown;
     UInt32 propertySize = sizeof(AudioDeviceID);
     AudioObjectPropertyAddress addr =
@@ -147,25 +147,25 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
         kAudioObjectPropertyElementMain
     };
     OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
-                                                 0, NULL, &propertySize, &deviceId);
+        0, NULL, &propertySize, &deviceId);
     if (status != noErr)
     {
         // Handle error
         return format;
     }
-    
+
     AudioObjectPropertyAddress propertyAddress;
     propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
     propertyAddress.mScope = kAudioObjectPropertyScopeInput;
     propertyAddress.mElement = kAudioObjectPropertyElementMain;
     Float64 sampleRateAsFloat;
-    
+
     propertySize = sizeof(Float64);
     status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
-                                        0, NULL, &propertySize, &sampleRateAsFloat);
-    
+        0, NULL, &propertySize, &sampleRateAsFloat);
+
     format.sampleRate = (ua_SampleRate)sampleRateAsFloat;
-    
+
     propertyAddress.mSelector = kAudioDevicePropertyPreferredChannelLayout;
     propertyAddress.mScope = kAudioObjectPropertyScopeOutput; // WHY IS THIS OUTPUT???
     propertyAddress.mElement = kAudioObjectPropertyElementMain;
@@ -173,7 +173,7 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     AudioChannelLayout channelLayout;
     status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL, &propertySize);
     status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
-                                        0, NULL, &propertySize, &channelLayout);
+        0, NULL, &propertySize, &channelLayout);
     format.numChannels = channelLayout.mNumberChannelDescriptions; // just care about # descriptions
     return format;
 #elif _WIN32
@@ -198,7 +198,7 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     r = pDefaultDevice->lpVtbl->OpenPropertyStore(pDefaultDevice, STGM_READ, &pStore);
     PROPVARIANT prop = { 0 };
     r = pStore->lpVtbl->GetValue(pStore, &PKEY_AudioEngine_DeviceFormat, &prop);
-    
+
     PWAVEFORMATEX deviceFormatProperties = (PWAVEFORMATEX)prop.blob.pBlobData;
 
     ua_AudioFormat format;
@@ -216,16 +216,16 @@ void* AllocateHelper(unsigned numBytes)
 void InitChannelMaps(void)
 {
     const float MINUS_THREE_DB_LINEAR = 0.7079f;
-    
+
     ua_ChannelMap* maps = ua_gChannelMaps;
     maps[0].numSourceChannels = 1;
     maps[0].numSinkChannels = 2;
-    
+
     maps[0].numConnections = 2;
     maps[0].connections[0].sourceChannel = 0;
     maps[0].connections[0].sinkChannel = 0;
     maps[0].connections[0].scaleFactor = MINUS_THREE_DB_LINEAR;
-    
+
     maps[0].connections[1].sourceChannel = 0;
     maps[0].connections[1].sinkChannel = 1;
     maps[0].connections[1].scaleFactor = MINUS_THREE_DB_LINEAR;
@@ -240,9 +240,9 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
         UA_LOG_ERROR(ua_gContext.deviceSampleRate != UA_INVALID_SAMPLE_RATE);
         return UA_INVALID_SAMPLE_RATE;
     }
-    
+
     InitChannelMaps();
-    const unsigned char MinConnections = 
+    const unsigned char MinConnections =
         UA_MIN(ua_InitParams->numChannels, deviceFormat->numChannels);
     ua_gContext.channelMap.numConnections = MinConnections;
     ua_gContext.channelMap.numSourceChannels = ua_InitParams->numChannels;
@@ -253,7 +253,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
         ua_gContext.channelMap.connections[i].sinkChannel = i;
         ua_gContext.channelMap.connections[i].sourceChannel = i;
     }
-    
+
     for (unsigned i = 0; i < UA_TOTAL_PREDEFINED_CHANNEL_MAPS; ++i)
     {
         if (ua_gChannelMaps[i].numSourceChannels == ua_InitParams->numChannels &&
@@ -282,7 +282,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     delayLine->numFrames = FrameMilliseconds / 1000;
     delayLine->numChannels = settings->numChannels;
     ua_gContext.delayLine.frameIndex = 0;
-    
+
     const unsigned MaxSamplesPerBuffer = settings->framesPerBuffer * settings->numChannels;
     const unsigned MaxWorkBufferByteCount = sizeof(float) * MaxSamplesPerBuffer;
     ua_AudioBuffer* workBuffer = &ua_gContext.workBuffer;
@@ -306,7 +306,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
 
         ua_gContext.renderToBufferFunction = RenderToBuffer;
     }
-    
+
 #ifdef __APPLE__
     ua_init_macos(ua_InitParams);
 #elif _WIN32
@@ -327,12 +327,12 @@ void ua_term(void)
 
 #ifdef __APPLE__
 // Callback function that fills audio buffers with data
-static OSStatus RenderCallback(void *inRefCon,
-                               AudioUnitRenderActionFlags *ioActionFlags,
-                               const AudioTimeStamp *inTimeStamp,
-                               UInt32 inBusNumber,
-                               UInt32 inNumberFrames,
-                               AudioBufferList *ioData)
+static OSStatus RenderCallback(void* inRefCon,
+    AudioUnitRenderActionFlags* ioActionFlags,
+    const AudioTimeStamp* inTimeStamp,
+    UInt32 inBusNumber,
+    UInt32 inNumberFrames,
+    AudioBufferList* ioData)
 {
     ua_Context* context = (ua_Context*)inRefCon;
     ua_AudioBuffer* workBuffer = &context->workBuffer;
@@ -342,7 +342,7 @@ static OSStatus RenderCallback(void *inRefCon,
     {
         memset(ioData->mBuffers[channel].mData, 0, ioData->mBuffers[channel].mDataByteSize);
     }
-    
+
     unsigned frame = 0;
     unsigned framesLeft = inNumberFrames;
     while (framesLeft)
@@ -352,10 +352,10 @@ static OSStatus RenderCallback(void *inRefCon,
             workBuffer->frameIndex = 0;
             context->renderToBufferFunction(workBuffer);
         }
-        
+
         const unsigned WorkFrames = workBuffer->numFrames - workBuffer->frameIndex;
         const unsigned FramesToProcess = WorkFrames < framesLeft ? WorkFrames : framesLeft;
-        
+
         for (unsigned char mapIndex = 0; mapIndex < map->numConnections; ++mapIndex)
         {
             const unsigned char SourceChannel = map->connections[mapIndex].sourceChannel;
@@ -365,37 +365,16 @@ static OSStatus RenderCallback(void *inRefCon,
             {
                 float* buffer = (float*)ioData->mBuffers[SinkChannel].mData;
                 const float Sample = workBuffer->data[(workBuffer->frameIndex + i)
-                                   * workBuffer->numChannels + SourceChannel];
+                    * workBuffer->numChannels + SourceChannel];
                 buffer[frame + i] += Sample * ScaleFactor;
             }
         }
-        
+
         framesLeft -= FramesToProcess;
         frame += FramesToProcess;
         workBuffer->frameIndex += FramesToProcess;
-        
-        
-        
-        
-        
-        
-        
-        
-        /*for (UInt32 i = 0; i < FramesToProcess; ++i)
-        {
-            for (UInt32 channel = 0; channel < workBuffer->numChannels; ++channel)
-            {
-                float* buffer = (float*)ioData->mBuffers[channel].mData;
-                buffer[frame + i] = workBuffer->data[(workBuffer->frameIndex + i)
-                                  * context->settings.numChannels + channel];
-            }
-        }
-        
-        framesLeft -= FramesToProcess;
-        frame += FramesToProcess;
-        workBuffer->frameIndex += FramesToProcess;*/
     }
-    
+
     return noErr;
 }
 
@@ -411,9 +390,9 @@ AudioDeviceID ua_get_default_output_device()
         kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain
     };
-    
+
     OSStatus err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr,
-                                              0, NULL, &propertySize, &deviceID);
+        0, NULL, &propertySize, &deviceID);
     if (err != noErr)
     {
         // Handle error
@@ -431,32 +410,6 @@ void CheckError(OSStatus err, const char* message)
     }
 }
 
-/*void ua_test_ranges(AudioDeviceID deviceId)
-{
-    // TODO: THIS NEEDS CLEANUP. A LOT OF CLEANUP.
-    // NEED TO PROVIDE VALID SAMPLE RATES BACK
-    // TO THE USER TO SELECT.
-    AudioObjectPropertyAddress propertyAddress;
-    propertyAddress.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-    propertyAddress.mScope = kAudioObjectPropertyScopeInput;
-    propertyAddress.mElement = kAudioObjectPropertyElementMain;
-    UInt32 propertySize = 0;
-    OSStatus status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress,
-                                                     0, NULL, &propertySize);
-    UInt32 numRanges = propertySize / sizeof(AudioValueRange);
-    
-    AudioValueRange* ranges = (AudioValueRange*)malloc(propertySize);
-    status = AudioObjectGetPropertyData(deviceId, &propertyAddress,
-                                        0, NULL, &propertySize, ranges);
-
-    printf("macOS permits these sample rates:\n");
-    for (UInt32 i = 0; i < numRanges; ++i)
-    {
-        printf("Min: %f Max: %f\n", ranges[i].mMinimum, ranges[i].mMaximum);
-    }
-    free(ranges);
-}*/
-
 void ua_init_macos(ua_Settings* ua_InitParams)
 {
     AudioComponentDescription desc;
@@ -465,52 +418,29 @@ void ua_init_macos(ua_Settings* ua_InitParams)
     desc.componentManufacturer = kAudioUnitManufacturer_Apple;
     desc.componentFlags = 0;
     desc.componentFlagsMask = 0;
-    
+
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
     OSStatus s = AudioComponentInstanceNew(comp, &auHAL);
     s = AudioUnitInitialize(auHAL);
     AudioDeviceID outputDeviceId = ua_get_default_output_device();
     s = AudioUnitSetProperty(auHAL, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
-                             0, &outputDeviceId, sizeof(outputDeviceId));
-    
+        0, &outputDeviceId, sizeof(outputDeviceId));
+
     AURenderCallbackStruct callbackStruct;
     callbackStruct.inputProc = RenderCallback;
     callbackStruct.inputProcRefCon = &ua_gContext;
-    
-    // TODO: in the future, the API should probably
-    // only get the closest available frames per buffer
-    // and sample rate, instead of error on mismatch.
+
     Float64 targetSampleRate = ua_gContext.deviceFormat.sampleRate;
-    
-    /*
-    AudioObjectPropertyAddress address = {
-        kAudioDevicePropertyNominalSampleRate,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    Float64 newSampleRate = 0.0;
-    s = AudioObjectSetPropertyData(ua_get_default_output_device(), &address, 
-                                        0, NULL, sizeof(Float64), &newSampleRate);
-    */
-    
-    // ua_test_ranges(outputDeviceId);
-    
-    /*UInt32 enableOutput = 1;
-    const AudioUnitElement AU_OUTPUT_BUS = 0;
-    s = AudioUnitSetProperty(auHAL, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
-                                           AU_OUTPUT_BUS, &enableOutput, sizeof(enableOutput));*/
     s = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
-                                  0, &targetSampleRate, sizeof(targetSampleRate));
+        0, &targetSampleRate, sizeof(targetSampleRate));
     s = AudioUnitSetProperty(auHAL, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input,
-                                  0, &callbackStruct, sizeof(callbackStruct));
+        0, &callbackStruct, sizeof(callbackStruct));
     UInt32 F64Size = sizeof(Float64);
     s = AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
-                             0, &targetSampleRate, &F64Size);
-    // status = AudioUnitSetProperty(auHAL, kAudioUnitProperty_ElementCount)
-    
+        0, &targetSampleRate, &F64Size);
+
     printf("Output sample rate is now at %f Hz\n", targetSampleRate);
-    
-    // 4. Start the Audio Unit
+
     AudioOutputUnitStart(auHAL);
 }
 
@@ -556,26 +486,26 @@ void XAudio2OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext)
     (void)This;
     (void)pBufferContext;
 
-    ua_AudioBuffer* sinkBuffer = &ua_buffers[ua_bufferIndex].buffer;
-    memset(sinkBuffer->data, 0, sizeof(float) * sinkBuffer->numChannels * sinkBuffer->numFrames);
-    ua_AudioBuffer* sourceBuffer = &ua_gContext.workBuffer;
-    if (sourceBuffer->numFrames != sinkBuffer->numFrames)
+    ua_AudioBuffer* sink = &ua_buffers[ua_bufferIndex].buffer;
+    memset(sink->data, 0, sizeof(float) * sink->numChannels * sink->numFrames);
+    ua_AudioBuffer* source = &ua_gContext.workBuffer;
+    if (source->numFrames != sink->numFrames)
     {
         exit(0);
     }
 
     // TODO: this is repeated logic from macOS. Should consolidate.
-    ua_gContext.renderToBufferFunction(sourceBuffer);
+    ua_gContext.renderToBufferFunction(source);
     const ua_ChannelMap* Map = &ua_gContext.channelMap;
     for (unsigned char mapIndex = 0; mapIndex < Map->numConnections; ++mapIndex)
     {
         const unsigned char SourceChannel = Map->connections[mapIndex].sourceChannel;
         const unsigned char SinkChannel = Map->connections[mapIndex].sinkChannel;
         const float ScaleFactor = Map->connections[mapIndex].scaleFactor;
-        for (unsigned frame = 0; frame < sinkBuffer->numFrames; ++frame)
+        for (unsigned frame = 0; frame < sink->numFrames; ++frame)
         {
-            const float Sample = sourceBuffer->data[frame * sourceBuffer->numChannels + SourceChannel];
-            sinkBuffer->data[frame * sinkBuffer->numChannels + SinkChannel] += Sample * ScaleFactor;
+            const float Sample = source->data[frame * source->numChannels + SourceChannel];
+            sink->data[frame * sink->numChannels + SinkChannel] += Sample * ScaleFactor;
         }
     }
 
@@ -612,11 +542,11 @@ void ua_init_windows(ua_Settings* settings)
 {
     HRESULT r;
     // per Microsoft, first param must be NULL
-    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED)); 
+    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
     // per Microsoft, param 2 must be 0
     UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR));
 
-    UA_CHECK(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice, 
+    UA_CHECK(IXAudio2_CreateMasteringVoice(ua_xAudio2, &ua_xAudio2MasterVoice,
         XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
         0, // no flags
         NULL, // use default device
@@ -637,7 +567,7 @@ void ua_init_windows(ua_Settings* settings)
         .cbSize = 0 // set to zero for PCM or IEEE float
     };
     const float DefaultPitchRatio = 1.f;
-    UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat, 
+    UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat,
         XAUDIO2_VOICE_NOPITCH, DefaultPitchRatio, &xAudio2Callbacks, NULL, NULL // no sends/effects
     ));
     IXAudio2SourceVoice_Start(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
@@ -650,7 +580,7 @@ void ua_init_windows(ua_Settings* settings)
         ua_XAudio2Buffer* ab = &ua_buffers[ua_bufferIndex];
         *ab = (const ua_XAudio2Buffer){ 0 };
         ab->rawData = settings->memAllocate(BufferByteCount);
-        
+
         ab->buffer.data = (float*)ab->rawData;
         ab->buffer.numChannels = NumChannels;
         ab->buffer.numFrames = FramesPerBuffer;
