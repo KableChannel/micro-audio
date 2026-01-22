@@ -525,8 +525,6 @@ IXAudio2VoiceCallback xAudio2Callbacks =
 ua_SampleRate ua_init_windows(ua_Settings* settings)
 {
     HRESULT r;
-    // per Microsoft, first param must be NULL
-    UA_CHECK(CoInitializeEx(NULL, COINIT_MULTITHREADED), UA_INVALID_SAMPLE_RATE);
     // per Microsoft, param 2 must be 0
     UA_CHECK(XAudio2Create(&ua_xAudio2, 0, XAUDIO2_USE_DEFAULT_PROCESSOR), UA_INVALID_SAMPLE_RATE);
 
@@ -592,8 +590,6 @@ void ua_term_windows(void)
     IXAudio2_StopEngine(ua_xAudio2);
     IXAudio2_Release(ua_xAudio2);
     ua_xAudio2 = NULL;
-
-    CoUninitialize();
 
     for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
     {
