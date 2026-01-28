@@ -3,9 +3,6 @@ An ultra-simple audio library focused on the KISS principles, written in C99.
 
 Compiled with all warnings (minus the stupid ones) enabled on Windows / macOS.
 
-## What's the point of this?
-I wanted a super basic audio library with which to build more complex sound tools, something closer to portAudio than, say, Wwise or FMOD.
-
 ## Features
 * Open an audio endpoint using the current 'default output device'.
 * Default output device determines the channel count and sample rate.
