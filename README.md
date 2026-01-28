@@ -14,6 +14,7 @@ Compiled with all warnings (minus the stupid ones) enabled on Windows / macOS.
 * Currently used just by one person, so use at your own risk.
 
 ## Wishlist:
+* More decent channel maps (e.g. 5.1 -> stereo).
 * Gracefully handle default output device changing at runtime.
 * Treat the target output device as a void sink if no device exists, so program logic based on the audio playhead can still function.
-* Default audio input????
+* Default audio input, maybe some day...
