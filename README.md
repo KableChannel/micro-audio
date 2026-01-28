@@ -3,6 +3,14 @@ An ultra-simple audio library focused on the KISS principles, written in C99.
 
 Compiled with all warnings (minus the stupid ones) enabled on Windows / macOS.
 
+# How to use:
+ua_SampleRate ua_init(ua_Settings* ua_InitParams)
+* Opens an audio stream using the default audio output device.
+* Provide your audio rendering callback to fill the buffers with data.
+* Returns the output device's chosen sample rate.
+void ua_term(void)
+* Gracefully closes the default audio stream.
+
 ## Features
 * Open an audio endpoint using the current 'default output device'.
 * Default output device determines the channel count and sample rate.
