@@ -30,7 +30,7 @@
 #endif // defined(_WIN32)
 //                                 buffer, # frames, # channels
 typedef void (*ua_AudioCallbackFn)(float*, unsigned, unsigned);
-typedef void* (*ua_AllocateFn)(unsigned);
+typedef void* (*ua_AllocateFn)(size_t);
 typedef void (*ua_FreeFn)(void*);
 
 

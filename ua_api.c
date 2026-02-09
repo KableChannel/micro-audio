@@ -204,11 +204,6 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
 #endif
 }
 
-void* AllocateHelper(unsigned numBytes)
-{
-    return malloc((size_t)numBytes);
-}
-
 void InitChannelMaps(void)
 {
     const float MINUS_THREE_DB_LINEAR = 0.7079f;
@@ -263,7 +258,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     ua_gContext.settings = *ua_InitParams;
 
     if (ua_InitParams->memAllocate == NULL)
-        ua_gContext.settings.memAllocate = AllocateHelper;
+        ua_gContext.settings.memAllocate = malloc;
     if (ua_InitParams->memFree == NULL)
         ua_gContext.settings.memFree = free;
 
