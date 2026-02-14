@@ -173,6 +173,17 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     
     return format;
 #elif _WIN32
+    HRESULT r = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (r == RPC_E_CHANGED_MODE)
+    {
+        r = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    }
+    else if (FAILED(r))
+    {
+        UA_LOG_ERROR(CoInitializeEx());
+        return (ua_AudioFormat) { .numChannels = 0, .sampleRate = UA_INVALID_SAMPLE_RATE };
+    }
+
     // I don't understand why Windows is like this, but the CLSID_MMDeviceEnumerator and
     // IID_IMMDeviceEnumerator GUID do not get defined anywhere when compiling for C language.
     // Therefore, I define them here. May they never change!
@@ -181,8 +192,6 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     const GUID MM_Interface = (GUID){ 0xA95664D2, 0x9614, 0x4F35,
         { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
 
-    HRESULT r;
-    r = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     IMMDeviceEnumerator* deviceEnumerator;
     r = CoCreateInstance(&MM_Class, NULL, CLSCTX_ALL, &MM_Interface, (void**)&deviceEnumerator);
     IMMDevice* pDefaultDevice;
@@ -200,6 +209,11 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     ua_AudioFormat format;
     format.numChannels = (unsigned char)deviceFormatProperties->nChannels;
     format.sampleRate = deviceFormatProperties->nSamplesPerSec; // should be called nFramesPerSec
+
+    pStore->lpVtbl->Release(pStore);
+    pDefaultDevice->lpVtbl->Release(pDefaultDevice);
+    deviceEnumerator->lpVtbl->Release(deviceEnumerator);
+
     return format;
 #endif
 }
@@ -602,6 +616,8 @@ void ua_term_windows(void)
         ua_gContext.settings.memFree(ua_gContext.delayLine.data);
         ua_gContext.delayLine.data = NULL;
     }
+
+    CoUninitialize();
 }
 
 #endif
