@@ -31,7 +31,9 @@
 #endif
 
 #ifdef __APPLE__
-ua_SampleRate ua_init_macos(ua_Settings* ua_InitParams);
+ua_SampleRate ua_init_macos(void);
+void ua_start_macos(void);
+void ua_stop_macos(void);
 void ua_term_macos(void);
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnit.h>
@@ -40,7 +42,9 @@ void ua_term_macos(void);
 #define UA_CHECK(x, ret) do { s = (x); if (s != noErr) { \
     UA_LOG_ERROR(x); return (ret); } } while(0)
 #elif _WIN32
-ua_SampleRate ua_init_windows(ua_Settings* ua_InitParams);
+ua_SampleRate ua_init_windows(void);
+void ua_start_windows(void);
+void ua_stop_windows(void);
 void ua_term_windows(void);
 #define WIN32_LEAN_AND_MEAN
 #include <initguid.h>
@@ -96,6 +100,7 @@ typedef struct ua_Context
     ua_AudioBuffer delayLine;
     ua_AudioFormat deviceFormat;
     void (*renderToBufferFunction)(ua_AudioBuffer*);
+    _Bool currentlyStreaming;
 } ua_Context;
 ua_Context ua_gContext;
 
@@ -194,10 +199,13 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
 
     IMMDeviceEnumerator* deviceEnumerator;
     r = CoCreateInstance(&MM_Class, NULL, CLSCTX_ALL, &MM_Interface, (void**)&deviceEnumerator);
+    if (deviceEnumerator == NULL)
+    {
+        return (ua_AudioFormat) { .numChannels = 0, .sampleRate = UA_INVALID_SAMPLE_RATE };
+    }
     IMMDevice* pDefaultDevice;
-    r = deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(
-        deviceEnumerator, eRender, eConsole, &pDefaultDevice
-    );
+    r = deviceEnumerator->lpVtbl->GetDefaultAudioEndpoint(deviceEnumerator,
+        eRender, eConsole, &pDefaultDevice);
 
     IPropertyStore* pStore = NULL;
     r = pDefaultDevice->lpVtbl->OpenPropertyStore(pDefaultDevice, STGM_READ, &pStore);
@@ -236,8 +244,16 @@ void InitChannelMaps(void)
     maps[0].connections[1].scaleFactor = MINUS_THREE_DB_LINEAR;
 }
 
-ua_SampleRate ua_init(ua_Settings* ua_InitParams)
+ua_SampleRate ua_init(const ua_Settings* ua_InitParams)
 {
+    ua_gContext.currentlyStreaming = FALSE;
+    ua_gContext.settings = *ua_InitParams;
+    if (ua_gContext.settings.memAllocate == NULL)
+        ua_gContext.settings.memAllocate = malloc;
+    if (ua_gContext.settings.memFree == NULL)
+        ua_gContext.settings.memFree = free;
+    const ua_Settings* settings = &ua_gContext.settings;
+
     ua_AudioFormat* deviceFormat = &ua_gContext.deviceFormat;
     *deviceFormat = GetDefaultDeviceFormat();
     if (deviceFormat->sampleRate == UA_INVALID_SAMPLE_RATE)
@@ -248,9 +264,9 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
 
     InitChannelMaps();
     const unsigned char MinConnections =
-        UA_MIN(ua_InitParams->numChannels, deviceFormat->numChannels);
+        UA_MIN(settings->numChannels, deviceFormat->numChannels);
     ua_gContext.channelMap.numConnections = MinConnections;
-    ua_gContext.channelMap.numSourceChannels = ua_InitParams->numChannels;
+    ua_gContext.channelMap.numSourceChannels = settings->numChannels;
     ua_gContext.channelMap.numSinkChannels = (unsigned char)deviceFormat->numChannels;
     for (unsigned char i = 0; i < ua_gContext.channelMap.numConnections; ++i)
     {
@@ -261,7 +277,7 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
 
     for (unsigned i = 0; i < UA_TOTAL_PREDEFINED_CHANNEL_MAPS; ++i)
     {
-        if (ua_gChannelMaps[i].numSourceChannels == ua_InitParams->numChannels &&
+        if (ua_gChannelMaps[i].numSourceChannels == settings->numChannels &&
             ua_gChannelMaps[i].numSinkChannels == deviceFormat->numChannels)
         {
             ua_gContext.channelMap = ua_gChannelMaps[i];
@@ -269,14 +285,6 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
         }
     }
 
-    ua_gContext.settings = *ua_InitParams;
-
-    if (ua_InitParams->memAllocate == NULL)
-        ua_gContext.settings.memAllocate = malloc;
-    if (ua_InitParams->memFree == NULL)
-        ua_gContext.settings.memFree = free;
-
-    const ua_Settings* settings = &ua_gContext.settings;
 
     const unsigned FrameMilliseconds = settings->maxLatencyMs * ua_gContext.deviceFormat.sampleRate;
     ua_AudioBuffer* delayLine = &ua_gContext.delayLine;
@@ -319,14 +327,41 @@ ua_SampleRate ua_init(ua_Settings* ua_InitParams)
     }
 
 #ifdef __APPLE__
-    return ua_init_macos(ua_InitParams);
+    return ua_init_macos();
 #elif _WIN32
-    return ua_init_windows(ua_InitParams);
+    return ua_init_windows();
+#endif
+}
+
+void ua_start(void)
+{
+    if (ua_gContext.currentlyStreaming)
+        return;
+    ua_gContext.currentlyStreaming = TRUE;
+
+#ifdef __APPLE__
+    ua_start_macos();
+#elif _WIN32
+    ua_start_windows();
+#endif
+}
+
+void ua_stop(void)
+{
+    if (ua_gContext.currentlyStreaming == FALSE)
+        return;
+    ua_gContext.currentlyStreaming = FALSE;
+
+#ifdef __APPLE__
+    ua_stop_macos();
+#elif _WIN32
+    ua_stop_windows();
 #endif
 }
 
 void ua_term(void)
 {
+    ua_stop();
 #ifdef __APPLE__
     ua_term_macos();
 #elif _WIN32
@@ -404,8 +439,10 @@ AudioDeviceID ua_get_default_output_device()
     return deviceID;
 }
 
-ua_SampleRate ua_init_macos(ua_Settings* ua_InitParams)
+ua_SampleRate ua_init_macos(void)
 {
+    const ua_Settings* settings = &ua_gContext.settings;
+
     AudioComponentDescription desc =
     {
         .componentType = kAudioUnitType_Output,
@@ -438,14 +475,21 @@ ua_SampleRate ua_init_macos(ua_Settings* ua_InitParams)
     UA_CHECK(AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 0,
              &targetSampleRate, &F64Size), UA_INVALID_SAMPLE_RATE);
 
-    AudioOutputUnitStart(auHAL);
-
     return ua_gContext.deviceFormat.sampleRate;
+}
+
+void ua_start_macos(void)
+{
+    AudioOutputUnitStart(auHAL);
+}
+
+void ua_stop_macos(void)
+{
+    AudioOutputUnitStop(auHAL);
 }
 
 void ua_term_macos(void)
 {
-    AudioOutputUnitStop(auHAL);
     AudioUnitUninitialize(auHAL);
     AudioComponentInstanceDispose(auHAL);
 }
@@ -531,7 +575,7 @@ IXAudio2VoiceCallback xAudio2Callbacks =
     }
 };
 
-ua_SampleRate ua_init_windows(ua_Settings* settings)
+ua_SampleRate ua_init_windows(void)
 {
     HRESULT r;
     // per Microsoft, param 2 must be 0
@@ -561,8 +605,8 @@ ua_SampleRate ua_init_windows(ua_Settings* settings)
     UA_CHECK(IXAudio2_CreateSourceVoice(ua_xAudio2, &ua_xAudio2SourceVoice, &waveFormat,
         XAUDIO2_VOICE_NOPITCH, DefaultPitchRatio, &xAudio2Callbacks, NULL, NULL // no sends/effects
     ), UA_INVALID_SAMPLE_RATE);
-    IXAudio2SourceVoice_Start(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
 
+    const ua_Settings* settings = &ua_gContext.settings;
     const unsigned short FramesPerBuffer = settings->framesPerBuffer;
     const unsigned BufferByteCount = FramesPerBuffer * NumChannels * sizeof(float);
     for (int i = 0; i < UA_RENDER_BUFFER_COUNT; ++i)
@@ -588,6 +632,16 @@ ua_SampleRate ua_init_windows(ua_Settings* settings)
     }
 
     return ua_gContext.deviceFormat.sampleRate;
+}
+
+void ua_start_windows(void)
+{
+    IXAudio2SourceVoice_Start(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
+}
+
+void ua_stop_windows(void)
+{
+    IXAudio2SourceVoice_Stop(ua_xAudio2SourceVoice, 0, XAUDIO2_COMMIT_NOW);
 }
 
 void ua_term_windows(void)

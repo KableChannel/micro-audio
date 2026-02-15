@@ -46,7 +46,9 @@ typedef struct ua_Settings {
 #define UA_INVALID_SAMPLE_RATE 0
 typedef unsigned ua_SampleRate;
 
-MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(ua_Settings* ua_InitParams);
+MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(const ua_Settings* ua_InitParams);
+MICRO_AUDIO_API_EXPORT void ua_start(void);
+MICRO_AUDIO_API_EXPORT void ua_stop(void);
 MICRO_AUDIO_API_EXPORT void ua_term(void);
 
 #endif // __MICRO_AUDIO_API
