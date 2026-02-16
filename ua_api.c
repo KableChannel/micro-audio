@@ -168,14 +168,16 @@ ua_AudioFormat GetDefaultDeviceFormat(void)
     propertyAddress.mScope = kAudioObjectPropertyScopeOutput; // WHY IS THIS OUTPUT???
     propertyAddress.mElement = kAudioObjectPropertyElementMain;
     propertySize = sizeof(AudioChannelLayout);
-    AudioChannelLayout channelLayout;
+    AudioChannelLayout* channelLayout;
     UA_CHECK(AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
                                             &propertySize), format);
+    channelLayout = ua_gContext.settings.memAllocate(propertySize);
     UA_CHECK(AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
-                                        &propertySize, &channelLayout), format);
+                                        &propertySize, channelLayout), format);
     // # channel descriptions = # channels
-    format.numChannels = (unsigned char)channelLayout.mNumberChannelDescriptions;
+    format.numChannels = (unsigned char)channelLayout->mNumberChannelDescriptions;
     
+    ua_gContext.settings.memFree(channelLayout);
     return format;
 #elif _WIN32
     HRESULT r = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -284,7 +286,6 @@ ua_SampleRate ua_init(const ua_Settings* ua_InitParams)
             break;
         }
     }
-
 
     const unsigned FrameMilliseconds = settings->maxLatencyMs * ua_gContext.deviceFormat.sampleRate;
     ua_AudioBuffer* delayLine = &ua_gContext.delayLine;
@@ -422,31 +423,12 @@ static OSStatus RenderCallback(void* inRefCon,
 }
 
 AudioComponentInstance auHAL;
-
-AudioDeviceID ua_get_default_output_device()
-{
-    AudioDeviceID deviceID = kAudioDeviceUnknown;
-    UInt32 propertySize = sizeof(AudioDeviceID);
-    AudioObjectPropertyAddress addr =
-    {
-        .mSelector = kAudioHardwarePropertyDefaultOutputDevice,
-        .mScope = kAudioObjectPropertyScopeGlobal,
-        .mElement = kAudioObjectPropertyElementMain
-    };
-
-    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &propertySize, &deviceID);
-
-    return deviceID;
-}
-
 ua_SampleRate ua_init_macos(void)
 {
-    const ua_Settings* settings = &ua_gContext.settings;
-
     AudioComponentDescription desc =
     {
         .componentType = kAudioUnitType_Output,
-        .componentSubType = kAudioUnitSubType_HALOutput,
+        .componentSubType = kAudioUnitSubType_DefaultOutput,
         .componentManufacturer = kAudioUnitManufacturer_Apple,
         .componentFlags = 0,
         .componentFlagsMask = 0,
@@ -454,27 +436,27 @@ ua_SampleRate ua_init_macos(void)
 
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
     OSStatus s;
+    // This occasionally requests microphone permissions when running in Xcode,
+    // but the standalone app does not have this defect. I'm pretty sure it's just an Xcode bug.
     UA_CHECK(AudioComponentInstanceNew(comp, &auHAL), UA_INVALID_SAMPLE_RATE);
     UA_CHECK(AudioUnitInitialize(auHAL), UA_INVALID_SAMPLE_RATE);
-    AudioDeviceID outputDeviceId = ua_get_default_output_device();
-    const AudioUnitPropertyID kCurrentDevice = kAudioOutputUnitProperty_CurrentDevice;
-    UA_CHECK(AudioUnitSetProperty(auHAL, kCurrentDevice, kAudioUnitScope_Global, 0,
-             &outputDeviceId, sizeof(outputDeviceId)), UA_INVALID_SAMPLE_RATE);
-
-    Float64 targetSampleRate = ua_gContext.deviceFormat.sampleRate;
-    UA_CHECK(AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 0,
-             &targetSampleRate, sizeof(targetSampleRate)), UA_INVALID_SAMPLE_RATE);
     
-    AURenderCallbackStruct callbackStruct;
+    const Float64 SampleRate = ua_gContext.deviceFormat.sampleRate; // set nominal sample rate
+    UA_CHECK(AudioUnitSetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input,
+             0, &SampleRate, sizeof(SampleRate)), UA_INVALID_SAMPLE_RATE);
+    
+    AURenderCallbackStruct callbackStruct; // set render callback
     callbackStruct.inputProc = RenderCallback;
     callbackStruct.inputProcRefCon = &ua_gContext;
     const AudioUnitPropertyID kRenderCallback = kAudioUnitProperty_SetRenderCallback;
     UA_CHECK(AudioUnitSetProperty(auHAL, kRenderCallback, kAudioUnitScope_Input, 0,
              &callbackStruct, sizeof(callbackStruct)), UA_INVALID_SAMPLE_RATE);
+    
     UInt32 F64Size = sizeof(Float64);
+    Float64 targetSampleRate = UA_INVALID_SAMPLE_RATE; // get final sample rate
     UA_CHECK(AudioUnitGetProperty(auHAL, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 0,
              &targetSampleRate, &F64Size), UA_INVALID_SAMPLE_RATE);
-
+    ua_gContext.deviceFormat.sampleRate = (ua_SampleRate)targetSampleRate;
     return ua_gContext.deviceFormat.sampleRate;
 }
 

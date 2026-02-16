@@ -28,11 +28,16 @@
 #else
 #define MICRO_AUDIO_API_EXPORT
 #endif // defined(_WIN32)
+
+#include <stddef.h>
+
 //                                 buffer, # frames, # channels
 typedef void (*ua_AudioCallbackFn)(float*, unsigned, unsigned);
 typedef void* (*ua_AllocateFn)(size_t);
 typedef void (*ua_FreeFn)(void*);
 
+#define UA_INVALID_SAMPLE_RATE 0u
+typedef unsigned ua_SampleRate;
 
 typedef struct ua_Settings {
     ua_AllocateFn memAllocate;
@@ -41,10 +46,9 @@ typedef struct ua_Settings {
     unsigned short framesPerBuffer;
     unsigned short maxLatencyMs;
     unsigned char numChannels;
+    // NOTE: currently unused, always check the returned sample rate from ua_init!
+    ua_SampleRate requestedSampleRate;
 } ua_Settings;
-
-#define UA_INVALID_SAMPLE_RATE 0
-typedef unsigned ua_SampleRate;
 
 MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(const ua_Settings* ua_InitParams);
 MICRO_AUDIO_API_EXPORT void ua_start(void);
