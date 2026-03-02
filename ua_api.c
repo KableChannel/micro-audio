@@ -37,7 +37,6 @@ void ua_stop_macos(void);
 void ua_term_macos(void);
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnit.h>
-#include <math.h>
 #include <string.h>
 #define UA_CHECK(x, ret) do { s = (x); if (s != noErr) { \
     UA_LOG_ERROR(x); return (ret); } } while(0)
