@@ -26,6 +26,8 @@ add_compile_definitions(BUILD_SHARED_LIBS)
 endif()
 
 add_library(micro-audio "ua_api.h" "ua_api.c")
+set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD 99)
+set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD_REQUIRED True)
 if (MSVC)
 	target_link_libraries(micro-audio PRIVATE XAudio2)
 elseif (APPLE)
