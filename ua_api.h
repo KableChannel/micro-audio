@@ -31,6 +31,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //                                 buffer, # frames, # channels
 typedef void (*ua_AudioCallbackFn)(float*, unsigned, unsigned);
 typedef void* (*ua_AllocateFn)(size_t);
@@ -54,5 +58,9 @@ MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(const ua_Settings* ua_InitParams);
 MICRO_AUDIO_API_EXPORT void ua_start(void);
 MICRO_AUDIO_API_EXPORT void ua_stop(void);
 MICRO_AUDIO_API_EXPORT void ua_term(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __MICRO_AUDIO_API
