@@ -23,7 +23,7 @@ add_compile_definitions(BUILD_SHARED_LIBS)
 endif()
 
 add_library(micro-audio "ua.h" "ua.c")
-target_compile_features(micro-midi PRIVATE c_std_99)
+target_compile_features(micro-audio PRIVATE c_std_99)
 set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD_REQUIRED True)
 set_target_properties(micro-audio PROPERTIES LINKER_LANGUAGE C)
 
