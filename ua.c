@@ -18,7 +18,7 @@
 #ifndef EXPORT_MICRO_AUDIO_LIBRARY
 #define EXPORT_MICRO_AUDIO_LIBRARY
 #endif
-#include "ua_api.h"
+#include "ua.h"
 #ifdef _DEBUG
 #include <stdio.h>
 #endif
