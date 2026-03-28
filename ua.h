@@ -16,17 +16,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-#ifndef __MICRO_AUDIO_API
-#define __MICRO_AUDIO_API
+#ifndef __UA
+#define __UA
 
 #if defined(_WIN32) && defined(BUILD_SHARED_LIBS)
-#if defined(EXPORT_MICRO_AUDIO_LIBRARY)
-#define MICRO_AUDIO_API_EXPORT __declspec(dllexport)
-#else // import harmony library
-#define MICRO_AUDIO_API_EXPORT __declspec(dllimport)
-#endif // defined(EXPORT_HARMONY_LIBRARY)
+  #if defined(UA_EXPORT_LIBRARY)
+    #define UA_EXPORT __declspec(dllexport)
+  #else
+    #define UA_EXPORT __declspec(dllimport)
+  #endif // defined(EXPORT_UA_LIBRARY)
 #else
-#define MICRO_AUDIO_API_EXPORT
+  #define UA_EXPORT
 #endif // defined(_WIN32)
 
 #include <stddef.h>
@@ -54,13 +54,13 @@ typedef struct ua_Settings {
     ua_SampleRate requestedSampleRate;
 } ua_Settings;
 
-MICRO_AUDIO_API_EXPORT ua_SampleRate ua_init(const ua_Settings* ua_InitParams);
-MICRO_AUDIO_API_EXPORT void ua_start(void);
-MICRO_AUDIO_API_EXPORT void ua_stop(void);
-MICRO_AUDIO_API_EXPORT void ua_term(void);
+UA_EXPORT ua_SampleRate ua_init(const ua_Settings* ua_InitParams);
+UA_EXPORT void ua_start(void);
+UA_EXPORT void ua_stop(void);
+UA_EXPORT void ua_term(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // __MICRO_AUDIO_API
+#endif // __UA
