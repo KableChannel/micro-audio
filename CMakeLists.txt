@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.10..4.1)
 
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_C_STANDARD_REQUIRED True)
-
 project(
 	micro-audio
 	VERSION 1.0
@@ -26,8 +23,10 @@ add_compile_definitions(BUILD_SHARED_LIBS)
 endif()
 
 add_library(micro-audio "ua.h" "ua.c")
-set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD 99)
+target_compile_features(micro-midi PRIVATE c_std_99)
 set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD_REQUIRED True)
+set_target_properties(micro-audio PROPERTIES LINKER_LANGUAGE C)
+
 if (MSVC)
 	target_link_libraries(micro-audio PRIVATE XAudio2)
 elseif (APPLE)
@@ -36,4 +35,3 @@ elseif (APPLE)
 	find_library(AUDIOTOOLBOX_LIBRARY AudioToolbox)
 	target_link_libraries(micro-audio PRIVATE ${COREFOUNDATION_LIBRARY} ${COREAUDIO_LIBRARY} ${AUDIOTOOLBOX_LIBRARY})
 endif ()
-set_target_properties(micro-audio PROPERTIES LINKER_LANGUAGE C)
