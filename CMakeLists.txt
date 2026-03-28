@@ -25,7 +25,7 @@ if(BUILD_SHARED_LIBS)
 add_compile_definitions(BUILD_SHARED_LIBS)
 endif()
 
-add_library(micro-audio "ua_api.h" "ua_api.c")
+add_library(micro-audio "ua.h" "ua.c")
 set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD 99)
 set_target_properties(micro-audio PROPERTIES CMAKE_C_STANDARD_REQUIRED True)
 if (MSVC)
